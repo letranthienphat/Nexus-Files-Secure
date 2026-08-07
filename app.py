@@ -12,7 +12,7 @@ from Crypto.Cipher import AES
 from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Hash import SHA256
 
-VERSION = "1.0.1"  # Định dạng phiên bản x.x.x mới
+VERSION = "1.0.1"  # Định dạng phiên bản x.x.x
 CONFIG_FILE = "data.json"
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/letranthienphat/Nexus-Files-Secure/refs/heads/main/README.md"
 UPDATE_CODE_URL = "https://raw.githubusercontent.com/letranthienphat/Nexus-Files-Secure/refs/heads/main/app.py"
@@ -33,26 +33,22 @@ class NexusFilesSecure:
         self.check_update()
         self.load_or_init_config()
 
-    # --- HÀM TÁCH CHUỖI PHIÊN BẢN ĐỂ SO SÁNH CHÍNH XÁC ---
+    # --- HÀM TÁCH CHUỖI PHIÊN BẢN ĐỂ SO SÁNH ---
     def parse_version(self, version_str):
-        # Chuyển từ "1.0.1" thành (1, 0, 1) để so sánh toán học chính xác
         try:
             return tuple(map(int, version_str.strip().split('.')))
         except ValueError:
             return (0, 0, 0)
 
-    # --- TÍNH NĂNG TỰ ĐỘNG CẬP NHẬT THEO X.X.X ---
+    # --- TÍNH NĂNG TỰ ĐỘNG CẬP NHẬT ---
     def check_update(self):
         try:
             response = requests.get(UPDATE_VERSION_URL, timeout=5)
             if response.status_code == 200:
                 import re
-                # Tìm chuỗi có định dạng x.x.x đầu tiên xuất hiện trong file README.md
                 match = re.search(r'\d+\.\d+\.\d+', response.text)
                 if match:
                     new_version_str = match.group()
-                    
-                    # So sánh tuple: ví dụ (1, 0, 1) > (1, 0, 0)
                     if self.parse_version(new_version_str) > self.parse_version(VERSION):
                         if messagebox.askyesno("Cập nhật", f"Phát hiện phiên bản mới (v{new_version_str}). Cập nhật ngay?"):
                             self.perform_update()
@@ -164,7 +160,7 @@ class NexusFilesSecure:
                 
         tk.Button(self.login_win, text="Đăng nhập", command=check, width=15, bg="#2196F3", fg="white").pack(pady=10)
 
-    # --- GIAO DIỆN CHÍNH THỨC ---
+    # --- GIAO DIỆN CHÍNH ---
     def draw_main_interface(self, master_password):
         self.master_password = master_password
         
@@ -271,6 +267,7 @@ class NexusFilesSecure:
             f_out.write(file_data)
         return out_path
 
+    # --- THÊM FILE VÀO KHO ---
     def add_file_to_vault(self):
         file_path = filedialog.askopenfilename()
         if not file_path:
@@ -297,6 +294,7 @@ class NexusFilesSecure:
         except Exception as e:
             messagebox.showerror("Lỗi", f"Không thể xử lý file: {e}")
 
+    # --- TRÍCH XUẤT FILE VÀ XÓA BẢN MÃ HÓA LƯU TRONG THƯ MỤC ---
     def extract_file_from_vault(self):
         selected = self.file_tree.selection()
         if not selected:
@@ -322,7 +320,17 @@ class NexusFilesSecure:
                     src_file = os.path.join(self.secure_storage_path, secure_name)
                     try:
                         out = self.custom_decrypt_unpack(src_file, dest_dir, self.master_password)
-                        messagebox.showinfo("Thành công", f"Đã giải mã và trích xuất về: {out}")
+                        
+                        # --- THÊM MỚI: XÓA FILE LƯU TRONG THƯ MỤC VA CẬP NHẬT CẤU HÌNH ---
+                        if os.path.exists(src_file):
+                            os.remove(src_file)
+                        
+                        self.config["files"] = [f for f in self.config["files"] if f["secure_name"] != secure_name]
+                        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                            json.dump(self.config, f, indent=4)
+                            
+                        self.refresh_file_list()
+                        messagebox.showinfo("Thành công", f"Đã giải mã và trích xuất về: {out}\n(File mã hóa trong kho đã được tự động xóa)")
                         confirm_win.destroy()
                     except Exception as e:
                         messagebox.showerror("Lỗi", f"Lỗi cấu trúc giải mã: {e}")
@@ -331,7 +339,7 @@ class NexusFilesSecure:
                 
         tk.Button(confirm_win, text="Xác nhận", command=do_extract, bg="#4CAF50", fg="white").pack(pady=5)
 
-    # --- KHÓA TĂNG TIẾN ---
+    # --- GIẢI MÃ FILE NGOẠI VI VÀ XÓA FILE .PROTECTED GỐC ---
     def decrypt_external_file(self):
         if not self.selected_ext_file:
             messagebox.showwarning("Cảnh báo", "Vui lòng chọn file .protected trước!")
@@ -359,14 +367,21 @@ class NexusFilesSecure:
             if not dest_dir:
                 return
                 
-            self.custom_decrypt_unpack(self.selected_ext_file, dest_dir, pwd)
+            out = self.custom_decrypt_unpack(self.selected_ext_file, dest_dir, pwd)
             
+            # --- THÊM MỚI: XÓA FILE NGOẠI VI (.protected) SAU KHIN GIẢI NÉN THÀNH CÔNG ---
+            if os.path.exists(self.selected_ext_file):
+                os.remove(self.selected_ext_file)
+                self.selected_ext_file = ""
+                self.lbl_ext_file.config(text="Chưa chọn file nào", fg="gray")
+                self.ext_pwd_entry.delete(0, tk.END)
+
             self.config["failed_attempts"] = 0
             self.config["lock_until"] = 0
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(self.config, f, indent=4)
                 
-            messagebox.showinfo("Thành công", "Giải nén cấu trúc thành công.")
+            messagebox.showinfo("Thành công", f"Giải nén thành công về: {out}\n(File .protected gốc đã được xóa)")
             
         except Exception:
             failed_attempts += 1
