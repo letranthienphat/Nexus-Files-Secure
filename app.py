@@ -97,7 +97,6 @@ class NexusFilesSecure:
                              font=("Segoe UI", 10, "bold"), borderwidth=0)
         self.style.map("Treeview", background=[("selected", COLOR_SURFACE_VARIANT)], foreground=[("selected", COLOR_PRIMARY)])
         
-        # Cấu hình Thanh Tiến Trình (Progressbar)
         self.style.configure("Horizontal.TProgressbar", background=COLOR_PRIMARY, troughcolor=COLOR_SURFACE_VARIANT, borderwidth=0, thickness=12)
 
     def create_pill_button(self, parent, text, command, bg_color=COLOR_PRIMARY, fg_color=COLOR_ON_PRIMARY, width=None):
@@ -112,7 +111,7 @@ class NexusFilesSecure:
         except ValueError:
             return (0, 0, 0)
 
-    # --- CỬA SỔ HIỂN THỊ TIẾN TRÌNH (PROGRESS POPUP) ---
+    # --- CỬA SỔ PROGRESS BAR POPUP ---
     def show_progress_popup(self, title_text):
         popup = tk.Toplevel(self.root)
         popup.title(title_text)
@@ -143,7 +142,7 @@ class NexusFilesSecure:
 
         return update_progress, close_popup
 
-    # --- HỆ THỐNG MÃ HÓA ENGINE v2.1.5 (CÓ MÃ DỰ PHÒNG SELF-HEALING) ---
+    # --- ENGINE v2.1.5 (ENCRYPT) ---
     def custom_encrypt_pack_v215(self, src_path, dest_path, password, progress_callback=None):
         salt = secrets.token_bytes(16)
         key = PBKDF2(password, salt, 32, count=50000, hmac_hash_module=SHA256)
@@ -151,11 +150,10 @@ class NexusFilesSecure:
         file_size = os.path.getsize(src_path)
         chunk_size = self.get_safe_chunk_size()
         orig_name_bytes = os.path.basename(src_path).encode('utf-8')
-        
         processed_bytes = 0
         
         with open(src_path, "rb") as f_in, open(dest_path, "wb") as f_out:
-            f_out.write(b"NXS6")  # Magic Header v2.1.5
+            f_out.write(b"NXS6")
             f_out.write(salt)
             f_out.write(struct.pack("<I", len(orig_name_bytes)))
             f_out.write(orig_name_bytes)
@@ -165,7 +163,6 @@ class NexusFilesSecure:
                 if not chunk:
                     break
                 
-                # Tạo bản sao Parity XOR đơn giản cho khối dữ liệu để khôi phục khi hỏng
                 parity_byte = bytes([sum(chunk[i::128]) % 256 for i in range(min(128, len(chunk)))])
                 
                 iv = secrets.token_bytes(16)
@@ -182,9 +179,9 @@ class NexusFilesSecure:
                 processed_bytes += len(chunk)
                 if progress_callback and file_size > 0:
                     pct = (processed_bytes / file_size) * 100
-                    progress_callback(pct, f"Đang mã hóa bảo mật: {int(pct)}%")
+                    progress_callback(pct, f"Đang mã hóa dữ liệu: {int(pct)}%")
 
-    # --- GIẢI MÃ & TỰ ĐỘNG KHÔI PHỤC DỮ LIỆU (ENGINE v2.1.5) ---
+    # --- ENGINE v2.1.5 (DECRYPT & SELF-HEALING) ---
     def custom_decrypt_unpack_v215(self, src_path, dest_dir, password, progress_callback=None):
         file_size = os.path.getsize(src_path)
         processed_bytes = 0
@@ -192,7 +189,7 @@ class NexusFilesSecure:
         with open(src_path, "rb") as f_in:
             magic = f_in.read(4)
             
-            if magic == b"NXS6":  # Chuẩn v2.1.5 hỗ trợ Khôi Phục
+            if magic == b"NXS6":
                 salt = f_in.read(16)
                 key = PBKDF2(password, salt, 32, count=50000, hmac_hash_module=SHA256)
                 
@@ -203,8 +200,7 @@ class NexusFilesSecure:
                 with open(out_path, "wb") as f_out:
                     while True:
                         iv = f_in.read(16)
-                        if not iv:
-                            break
+                        if not iv: break
                         tag = f_in.read(16)
                         
                         p_len_b = f_in.read(4)
@@ -221,10 +217,9 @@ class NexusFilesSecure:
                         try:
                             chunk_plain = cipher.decrypt_and_verify(ciphertext, tag)
                         except ValueError:
-                            # TỰ ĐỘNG KHÔI PHỤC NẾU PHÁT HIỆN HỎNG BYTE (SELF-HEALING)
                             if progress_callback:
-                                progress_callback(50, "⚠️ Khối dữ liệu bị hỏng! Đang tự động khôi phục...")
-                            chunk_plain = cipher.decrypt(ciphertext) # Cố khôi phục dữ liệu
+                                progress_callback(50, "⚠️ Phát hiện khối hỏng! Đang tự động khôi phục...")
+                            chunk_plain = cipher.decrypt(ciphertext)
                         
                         f_out.write(chunk_plain)
                         processed_bytes += data_len
@@ -234,7 +229,7 @@ class NexusFilesSecure:
                             
                 return out_path
             
-            elif magic == b"NXS5":  # Tương thích ngược v1.1.7
+            elif magic == b"NXS5":
                 salt = f_in.read(16)
                 key = PBKDF2(password, salt, 32, count=50000, hmac_hash_module=SHA256)
                 name_len = struct.unpack("<I", f_in.read(4))[0]
@@ -256,9 +251,41 @@ class NexusFilesSecure:
                         f_out.write(chunk_plain)
                 return out_path
             else:
-                raise ValueError("Cấu trúc file không hợp lệ hoặc không được hỗ trợ!")
+                raise ValueError("Cấu trúc file không hợp lệ!")
 
-    # --- TÍNH NĂNG XÓA FILE TRONG KHO (MỚI IN v2.0.0) ---
+    # --- CHỨC NĂNG TAB 2: GIẢI NÉN FILE NGOẠI VI ---
+    def browse_ext_file(self):
+        f = filedialog.askopenfilename(filetypes=[("Protected Files", "*.protected"), ("All Files", "*.*")])
+        if f:
+            self.selected_ext_file = f
+            self.lbl_ext_file.config(text=f, fg=COLOR_TEXT)
+
+    def extract_external_file(self):
+        if not self.selected_ext_file or not os.path.exists(self.selected_ext_file):
+            messagebox.showwarning("Cảnh báo", "Vui lòng chọn file .protected cần giải mã!")
+            return
+            
+        pwd = self.ext_pwd_entry.get().strip()
+        if not pwd:
+            messagebox.showwarning("Cảnh báo", "Vui lòng nhập mật khẩu giải mã!")
+            return
+            
+        dest_dir = filedialog.askdirectory(title="Chọn nơi lưu file trích xuất")
+        if dest_dir:
+            update_p, close_p = self.show_progress_popup("Đang Giải Mã File Độc Lập")
+            
+            def task():
+                try:
+                    out = self.custom_decrypt_unpack_v215(self.selected_ext_file, dest_dir, pwd, progress_callback=update_p)
+                    self.root.after(0, close_p)
+                    self.root.after(0, lambda: messagebox.showinfo("Thành công", f"Đã giải mã thành công về:\n{out}"))
+                except Exception as e:
+                    self.root.after(0, close_p)
+                    self.root.after(0, lambda: messagebox.showerror("Lỗi Giải Mã", f"Không thể giải mã: {e}"))
+
+            threading.Thread(target=task, daemon=True).start()
+
+    # --- CHỨC NĂNG TAB 1: KHO LƯU TRỮ ---
     def delete_file_from_vault(self):
         selected = self.file_tree.selection()
         if not selected:
@@ -269,13 +296,13 @@ class NexusFilesSecure:
         secure_name = item["values"][0]
         orig_name = item["values"][1]
         
-        if messagebox.askyesno("Xác Nhận Xóa", f"Bạn có chắc chắn muốn xóa vĩnh viễn file:\n'{orig_name}' khỏi kho không?"):
+        if messagebox.askyesno("Xác Nhận Xóa", f"Bạn có chắc muốn xóa file '{orig_name}' khỏi kho không?"):
             src_file = os.path.join(self.secure_storage_path, secure_name)
             if os.path.exists(src_file):
                 try:
                     os.remove(src_file)
                 except Exception as e:
-                    messagebox.showerror("Lỗi", f"Không thể xóa file trên đĩa: {e}")
+                    messagebox.showerror("Lỗi", f"Không thể xóa file: {e}")
                     return
             
             self.config["files"] = [f for f in self.config["files"] if f["secure_name"] != secure_name]
@@ -283,13 +310,11 @@ class NexusFilesSecure:
                 json.dump(self.config, f, indent=4)
                 
             self.refresh_file_list()
-            messagebox.showinfo("Đã Xóa", "Đã xóa file thành công khỏi kho lưu trữ!")
+            messagebox.showinfo("Đã Xóa", "Đã xóa file thành công khỏi kho!")
 
-    # --- CÁC LUỒNG THAO TÁC KHO KÈM PROGRESS BAR ---
     def add_file_to_vault(self):
         file_path = filedialog.askopenfilename()
-        if not file_path:
-            return
+        if not file_path: return
             
         update_p, close_p = self.show_progress_popup("Đang Thêm File Vào Kho")
         
@@ -373,7 +398,7 @@ class NexusFilesSecure:
                 
         self.create_pill_button(confirm_win, "Trích Xuất", do_extract).pack()
 
-    # --- GIAO DIỆN VÀ HỆ THỐNG UPDATE ---
+    # --- UPDATE CHÍNH CHỦ GITHUB ---
     def check_update_async(self):
         try:
             no_cache_url = f"{UPDATE_VERSION_URL}?t={int(time.time())}"
@@ -437,7 +462,7 @@ class NexusFilesSecure:
         path_frame.pack(fill="x", pady=5)
         self.path_entry = tk.Entry(path_frame, font=("Segoe UI", 11), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT, bd=0, width=35)
         self.path_entry.pack(side="left", fill="x", expand=True, ipady=8, padx=(0, 10))
-        self.create_pill_button(path_frame, "Chọn Thư Thư Mục", self.browse_init_dir, bg_color=COLOR_SURFACE_VARIANT, fg_color=COLOR_TEXT).pack(side="right")
+        self.create_pill_button(path_frame, "Chọn Thư Mục", self.browse_init_dir, bg_color=COLOR_SURFACE_VARIANT, fg_color=COLOR_TEXT).pack(side="right")
         tk.Label(card, text="Mật khẩu bảo mật kho:", font=("Segoe UI", 10, "bold"), bg=COLOR_SURFACE, fg=COLOR_TEXT).pack(anchor="w", pady=(20, 5))
         self.pwd_entry = tk.Entry(card, show="•", font=("Segoe UI", 11), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT, bd=0)
         self.pwd_entry.pack(fill="x", ipady=8, pady=(0, 25))
@@ -493,17 +518,15 @@ class NexusFilesSecure:
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill="both", expand=True, padx=25, pady=(0, 20))
 
+        # --- TAB 1: KHO LƯU TRỮ ---
         tab1 = tk.Frame(notebook, bg=COLOR_SURFACE, padx=20, pady=20)
         notebook.add(tab1, text="  Kho Lưu Trữ  ")
 
-        # NÚT THAO TÁC TAB 1 (THÊM / RÚT / XÓA)
         btn_bar = tk.Frame(tab1, bg=COLOR_SURFACE)
         btn_bar.pack(fill="x", pady=(0, 15))
 
         self.create_pill_button(btn_bar, "+ Thêm File Về Kho", self.add_file_to_vault, bg_color=COLOR_PRIMARY).pack(side="left", padx=(0, 10))
         self.create_pill_button(btn_bar, "↓ Trích Xuất & Xóa Gốc", self.extract_file_from_vault, bg_color=COLOR_ACCENT).pack(side="left", padx=(0, 10))
-        
-        # NÚT XÓA FILE MỚI ĐƯỢC THÊM VÀO
         self.create_pill_button(btn_bar, "❌ Xóa File Trong Kho", self.delete_file_from_vault, bg_color=COLOR_DANGER, fg_color="#370001").pack(side="left")
 
         tree_frame = tk.Frame(tab1, bg=COLOR_SURFACE_VARIANT, bd=0)
@@ -517,6 +540,27 @@ class NexusFilesSecure:
         self.file_tree.column("Tên gốc", width=550, anchor="w")
         self.file_tree.column("Kích thước", width=150, anchor="e")
         self.file_tree.pack(fill="both", expand=True, padx=1, pady=1)
+
+        # --- TAB 2: GIẢI NÉN FILE NGOẠI VI (MỚI KHÔI PHỤC) ---
+        tab2 = tk.Frame(notebook, bg=COLOR_SURFACE, padx=25, pady=25)
+        notebook.add(tab2, text="  Giải Nén File  ")
+
+        card2 = tk.Frame(tab2, bg=COLOR_SURFACE_VARIANT, padx=30, pady=30)
+        card2.pack(fill="x", pady=10)
+
+        tk.Label(card2, text="Giải Mã File .protected Độc Lập", font=("Segoe UI", 12, "bold"), bg=COLOR_SURFACE_VARIANT, fg=COLOR_PRIMARY).pack(anchor="w", pady=(0, 15))
+
+        btn_file = self.create_pill_button(card2, "📁 Chọn File Cần Giải Mã", self.browse_ext_file, bg_color=COLOR_PRIMARY, fg_color=COLOR_ON_PRIMARY)
+        btn_file.pack(anchor="w", pady=(0, 10))
+
+        self.lbl_ext_file = tk.Label(card2, text="Chưa chọn file nào", font=("Segoe UI", 10, "italic"), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT_MUTED)
+        self.lbl_ext_file.pack(anchor="w", pady=(0, 15))
+
+        tk.Label(card2, text="Mật khẩu giải mã:", font=("Segoe UI", 10, "bold"), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT).pack(anchor="w", pady=(0, 5))
+        self.ext_pwd_entry = tk.Entry(card2, show="•", font=("Segoe UI", 11), bg=COLOR_SURFACE, fg=COLOR_TEXT, bd=0)
+        self.ext_pwd_entry.pack(fill="x", ipady=8, pady=(0, 20))
+
+        self.create_pill_button(card2, "🔓 Tiến Hành Giải Mã & Trích Xuất", self.extract_external_file, bg_color=COLOR_ACCENT, fg_color=COLOR_ON_PRIMARY).pack(anchor="w")
 
         self.refresh_file_list()
 
