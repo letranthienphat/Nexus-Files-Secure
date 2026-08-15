@@ -1,6 +1,6 @@
 # Nexus-Files-Secure
 A special software that can help you protect your file 99% (only except if the criminal use most powerful break tools on the world or they know the password)
-Last version: 2.0.1
+Last version: 2.0.5
 Latest secure version: 2.1.5
 Software Information:
 Creator: Lê Trần Thiên Phát
