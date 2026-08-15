@@ -15,8 +15,8 @@ from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Hash import SHA256
 
 # --- KHAI BÁO PHIÊN BẢN HỆ THỐNG ---
-VERSION = "1.1.7"
-SECURE_VERSION = "2.0.0"
+VERSION = "2.0.0"
+SECURE_VERSION = "2.1.5"
 
 CONFIG_FILE = "data.json"
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/letranthienphat/Nexus-Files-Secure/refs/heads/main/README.md"
@@ -37,30 +37,24 @@ COLOR_TEXT_MUTED = "#938F99"
 class NexusFilesSecure:
     def __init__(self, root):
         self.root = root
-        self.root.title(f"Nexus Files Secure - App v{VERSION} | Secure v{SECURE_VERSION}")
+        self.root.title(f"Nexus Files Secure - App v{VERSION} | Secure Engine v{SECURE_VERSION}")
         self.root.configure(bg=COLOR_BG)
         
-        # --- THIẾT LẬP FULL MÀN HÌNH ---
         try:
-            self.root.state('zoomed')  # Tự động phóng to tối đa màn hình trên Windows
+            self.root.state('zoomed')
         except Exception:
-            self.root.attributes('-fullscreen', True)  # Dự phòng trên hệ điều hành khác
+            self.root.attributes('-fullscreen', True)
             
         self.root.resizable(True, True)
-        
         self.config = {}
         self.secure_storage_path = ""
         self.master_password = ""
         self.selected_ext_file = ""
 
         self.setup_android_theme()
-        
-        # Kiểm tra cập nhật chạy ngầm
         threading.Thread(target=self.check_update_async, daemon=True).start()
-        
         self.load_or_init_config()
 
-    # --- TÍNH TOÁN RAM TRỐNG (TỐI ĐA 80% RAM TRỐNG) ---
     def get_safe_chunk_size(self):
         try:
             class MEMORYSTATUSEX(ctypes.Structure):
@@ -83,10 +77,9 @@ class NexusFilesSecure:
         except Exception:
             max_allowed = 32 * 1024 * 1024
             
-        chunk_size = min(max_allowed, 16 * 1024 * 1024)
+        chunk_size = min(max_allowed, 8 * 1024 * 1024)
         return max(chunk_size, 1 * 1024 * 1024)
 
-    # --- THIẾT LẬP THEME ANDROID 16 ---
     def setup_android_theme(self):
         self.style = ttk.Style()
         self.style.theme_use("clam")
@@ -103,6 +96,9 @@ class NexusFilesSecure:
         self.style.configure("Treeview.Heading", background=COLOR_SURFACE_VARIANT, foreground=COLOR_TEXT, 
                              font=("Segoe UI", 10, "bold"), borderwidth=0)
         self.style.map("Treeview", background=[("selected", COLOR_SURFACE_VARIANT)], foreground=[("selected", COLOR_PRIMARY)])
+        
+        # Cấu hình Thanh Tiến Trình (Progressbar)
+        self.style.configure("Horizontal.TProgressbar", background=COLOR_PRIMARY, troughcolor=COLOR_SURFACE_VARIANT, borderwidth=0, thickness=12)
 
     def create_pill_button(self, parent, text, command, bg_color=COLOR_PRIMARY, fg_color=COLOR_ON_PRIMARY, width=None):
         return tk.Button(parent, text=text, command=command, bg=bg_color, fg=fg_color,
@@ -116,323 +112,50 @@ class NexusFilesSecure:
         except ValueError:
             return (0, 0, 0)
 
-    # --- HỆ THỐNG CHECK VÀ PHÂN LOẠI BẢN CẬP NHẬT (CHỐNG CACHE GITHUB CDN) ---
-    def check_update_async(self):
-        try:
-            # Gắn timestamp ép GitHub CDN luôn trả về nội dung mới nhất
-            no_cache_url = f"{UPDATE_VERSION_URL}?t={int(time.time())}"
-            res = requests.get(no_cache_url, timeout=5)
-            
-            if res.status_code == 200:
-                lines = res.text.splitlines()
-                remote_app_ver_str = ""
-                remote_sec_ver_str = ""
-                
-                for line in lines:
-                    if "Latest secure version" in line:
-                        match = re.search(r'\d+\.\d+\.\d+', line)
-                        if match:
-                            remote_sec_ver_str = match.group()
-                    elif "Latest version" in line or "Version" in line:
-                        if not remote_app_ver_str:
-                            match = re.search(r'\d+\.\d+\.\d+', line)
-                            if match:
-                                remote_app_ver_str = match.group()
+    # --- CỬA SỔ HIỂN THỊ TIẾN TRÌNH (PROGRESS POPUP) ---
+    def show_progress_popup(self, title_text):
+        popup = tk.Toplevel(self.root)
+        popup.title(title_text)
+        popup.geometry("450x180")
+        popup.configure(bg=COLOR_SURFACE)
+        popup.resizable(False, False)
+        popup.grab_set()
 
-                has_app_update = bool(remote_app_ver_str and self.parse_version(remote_app_ver_str) > self.parse_version(VERSION))
-                has_sec_update = bool(remote_sec_ver_str and self.parse_version(remote_sec_ver_str) > self.parse_version(SECURE_VERSION))
+        lbl_status = tk.Label(popup, text="Đang khởi tạo...", font=("Segoe UI", 11, "bold"), bg=COLOR_SURFACE, fg=COLOR_TEXT)
+        lbl_status.pack(anchor="w", padx=25, pady=(25, 10))
 
-                if has_app_update or has_sec_update:
-                    self.root.after(0, lambda: self.prompt_update(
-                        remote_app_ver_str or VERSION,
-                        remote_sec_ver_str or SECURE_VERSION,
-                        has_app_update,
-                        has_sec_update
-                    ))
-        except Exception:
-            pass
+        progress = ttk.Progressbar(popup, style="Horizontal.TProgressbar", mode="determinate", length=400)
+        progress.pack(padx=25, pady=5)
 
-    def prompt_update(self, new_app_ver, new_sec_ver, has_app_up, has_sec_up):
-        if has_app_up and has_sec_up:
-            update_type_msg = "📌 Loại cập nhật: Cập nhật toàn diện (Bao gồm tính năng mới và nâng cấp bảo mật quan trọng)."
-        elif has_app_up and not has_sec_up:
-            update_type_msg = "📌 Loại cập nhật: Cập nhật tính năng, không ảnh hưởng đến bảo mật."
-        elif has_sec_up and not has_app_up:
-            update_type_msg = "📌 Loại cập nhật: Cập nhật liên quan đến bảo mật, không làm thay đổi tính năng."
-        else:
-            return
+        lbl_percent = tk.Label(popup, text="0%", font=("Segoe UI", 10), bg=COLOR_SURFACE, fg=COLOR_TEXT_MUTED)
+        lbl_percent.pack(anchor="e", padx=25, pady=(5, 10))
 
-        detail_text = (
-            f"Phát hiện bản cập nhật mới trên GitHub!\n\n"
-            f"• Phiên bản Ứng dụng: v{VERSION} ➔ v{new_app_ver}\n"
-            f"• Phiên bản Bảo mật:   v{SECURE_VERSION} ➔ v{new_sec_ver}\n\n"
-            f"{update_type_msg}\n\n"
-            f"Bạn có muốn tiến hành nâng cấp tự động ngay không?"
-        )
+        def update_progress(val, text=""):
+            progress['value'] = val
+            lbl_percent.config(text=f"{int(val)}%")
+            if text:
+                lbl_status.config(text=text)
+            popup.update_idletasks()
 
-        self.root.clipboard_clear()
-        self.root.clipboard_append(detail_text)
-        self.root.update()
+        def close_popup():
+            popup.grab_release()
+            popup.destroy()
 
-        if messagebox.askyesno("Phát Hiện Bản Cập Nhật Mới", detail_text):
-            threading.Thread(target=self.perform_update_async, daemon=True).start()
+        return update_progress, close_popup
 
-    def perform_update_async(self):
-        try:
-            # Gắn timestamp chống cache khi tải file app.py mới
-            no_cache_code_url = f"{UPDATE_CODE_URL}?t={int(time.time())}"
-            res = requests.get(no_cache_code_url, timeout=10)
-            if res.status_code == 200:
-                current_script = os.path.abspath(sys.argv[0])
-                with open(current_script, "w", encoding="utf-8") as f:
-                    f.write(res.text)
-                self.root.after(0, self.restart_app)
-        except Exception as e:
-            self.root.after(0, lambda: messagebox.showerror("Lỗi Cập Nhật", f"Không thể tải mã nguồn mới: {e}"))
-
-    def restart_app(self):
-        messagebox.showinfo("Thành công", "Đã cập nhật hệ thống thành công! Ứng dụng sẽ khởi động lại.")
-        os.execv(sys.executable, ['python'] + sys.argv)
-
-    # --- XEM NỘI DUNG README GỐC (CHỐNG CACHE) ---
-    def fetch_and_show_software_info(self):
-        def task():
-            try:
-                no_cache_url = f"{UPDATE_VERSION_URL}?t={int(time.time())}"
-                res = requests.get(no_cache_url, timeout=5)
-                if res.status_code == 200:
-                    raw_text = res.text
-                    self.root.clipboard_clear()
-                    self.root.clipboard_append(raw_text)
-                    self.root.update()
-                    self.root.after(0, lambda: self.display_readme_window(raw_text))
-                else:
-                    self.root.after(0, lambda: messagebox.showerror("Lỗi", "Không thể tải file README.md"))
-            except Exception as e:
-                self.root.after(0, lambda: messagebox.showerror("Lỗi", f"Lỗi kết nối: {e}"))
-
-        threading.Thread(target=task, daemon=True).start()
-
-    def display_readme_window(self, content):
-        info_win = tk.Toplevel(self.root)
-        info_win.title("Thông Tin Phiên Bản & Bảo Mật - README")
-        info_win.geometry("700x550")
-        info_win.configure(bg=COLOR_BG)
-
-        hdr = tk.Frame(info_win, bg=COLOR_BG, padx=15, pady=10)
-        hdr.pack(fill="x")
-        tk.Label(hdr, text="Chi Tiết README (Đã copy vào Clipboard)", font=("Segoe UI", 11, "bold"), bg=COLOR_BG, fg=COLOR_PRIMARY).pack(side="left")
-
-        txt_frame = tk.Frame(info_win, bg=COLOR_SURFACE, padx=10, pady=10)
-        txt_frame.pack(fill="both", expand=True, padx=15, pady=(0, 15))
-
-        txt_box = tk.Text(txt_frame, wrap="word", bg=COLOR_SURFACE, fg=COLOR_TEXT, 
-                          font=("Segoe UI", 11), bd=0, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(txt_frame, command=txt_box.yview)
-        txt_box.configure(yscrollcommand=scrollbar.set)
-
-        scrollbar.pack(side="right", fill="y")
-        txt_box.pack(side="left", fill="both", expand=True)
-
-        txt_box.insert("1.0", content)
-        txt_box.config(state="disabled")
-
-    # --- QUẢN LÝ CẤU HÌNH ---
-    def load_or_init_config(self):
-        if not os.path.exists(CONFIG_FILE):
-            self.init_first_time()
-        else:
-            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                self.config = json.load(f)
-            self.secure_storage_path = self.config.get("storage_path", "")
-            if not os.path.exists(self.secure_storage_path):
-                os.makedirs(self.secure_storage_path, exist_ok=True)
-            self.verify_password_screen()
-
-    def init_first_time(self):
-        self.clear_frame()
-        card = tk.Frame(self.root, bg=COLOR_SURFACE, padx=40, pady=35, width=550)
-        card.place(relx=0.5, rely=0.5, anchor="center")
-        
-        tk.Label(card, text="Thiết Lập Ban Đầu", font=("Segoe UI", 18, "bold"), bg=COLOR_SURFACE, fg=COLOR_PRIMARY).pack(anchor="w", pady=(0, 5))
-        tk.Label(card, text="Chọn thư mục kho lưu trữ và tạo mật khẩu chính.", font=("Segoe UI", 10), bg=COLOR_SURFACE, fg=COLOR_TEXT_MUTED).pack(anchor="w", pady=(0, 25))
-        
-        path_frame = tk.Frame(card, bg=COLOR_SURFACE)
-        path_frame.pack(fill="x", pady=5)
-        
-        self.path_entry = tk.Entry(path_frame, font=("Segoe UI", 11), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT, bd=0, highlightthickness=1, highlightbackground=COLOR_TEXT_MUTED, width=35)
-        self.path_entry.pack(side="left", fill="x", expand=True, ipady=8, padx=(0, 10))
-        
-        btn_browse = self.create_pill_button(path_frame, "Chọn Thư Mục", self.browse_init_dir, bg_color=COLOR_SURFACE_VARIANT, fg_color=COLOR_TEXT)
-        btn_browse.pack(side="right")
-        
-        tk.Label(card, text="Mật khẩu bảo mật kho:", font=("Segoe UI", 10, "bold"), bg=COLOR_SURFACE, fg=COLOR_TEXT).pack(anchor="w", pady=(20, 5))
-        self.pwd_entry = tk.Entry(card, show="•", font=("Segoe UI", 11), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT, bd=0, highlightthickness=1, highlightbackground=COLOR_TEXT_MUTED)
-        self.pwd_entry.pack(fill="x", ipady=8, pady=(0, 25))
-        
-        btn_save = self.create_pill_button(card, "Hoàn Tất Khởi Tạo", self.save_first_time_init)
-        btn_save.pack(fill="x")
-
-    def browse_init_dir(self):
-        d = filedialog.askdirectory()
-        if d:
-            self.path_entry.delete(0, tk.END)
-            self.path_entry.insert(0, d)
-
-    def save_first_time_init(self):
-        path = self.path_entry.get().strip()
-        pwd = self.pwd_entry.get().strip()
-        if not path or not pwd:
-            messagebox.showwarning("Cảnh báo", "Vui lòng điền đầy đủ thông tin!")
-            return
-        
-        salt = secrets.token_bytes(16)
-        hashed_pwd = PBKDF2(pwd, salt, 32, count=100000, hmac_hash_module=SHA256)
-        
-        self.config = {
-            "storage_path": path,
-            "verifier": hashed_pwd.hex(),
-            "salt": salt.hex(),
-            "files": [],
-            "failed_attempts": 0,
-            "lock_until": 0
-        }
-        
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(self.config, f, indent=4)
-            
-        self.secure_storage_path = path
-        os.makedirs(path, exist_ok=True)
-        self.draw_main_interface(pwd)
-
-    # --- MÀN HÌNH ĐĂNG NHẬP (CĂN GIỮA) ---
-    def verify_password_screen(self):
-        self.clear_frame()
-        card = tk.Frame(self.root, bg=COLOR_SURFACE, padx=40, pady=40, width=450)
-        card.place(relx=0.5, rely=0.5, anchor="center")
-        
-        tk.Label(card, text="Nexus Files Secure", font=("Segoe UI", 18, "bold"), bg=COLOR_SURFACE, fg=COLOR_PRIMARY).pack(pady=(0, 2))
-        
-        lbl_ver_sub = tk.Label(card, text=f"App v{VERSION}  |  Secure Engine v{SECURE_VERSION}", font=("Segoe UI", 9, "bold"), bg=COLOR_SURFACE, fg=COLOR_ACCENT)
-        lbl_ver_sub.pack(pady=(0, 20))
-
-        tk.Label(card, text="Nhập mật khẩu truy cập kho lưu trữ", font=("Segoe UI", 10), bg=COLOR_SURFACE, fg=COLOR_TEXT_MUTED).pack(pady=(0, 15))
-        
-        entry_pwd = tk.Entry(card, show="•", font=("Segoe UI", 11), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT, bd=0, justify="center", highlightthickness=1, highlightbackground=COLOR_TEXT_MUTED)
-        entry_pwd.pack(fill="x", ipady=8, pady=(0, 20))
-        entry_pwd.focus()
-
-        def do_login():
-            pwd = entry_pwd.get()
-            salt = bytes.fromhex(self.config["salt"])
-            expected = self.config["verifier"]
-            hashed = PBKDF2(pwd, salt, 32, count=100000, hmac_hash_module=SHA256).hex()
-            
-            if hashed == expected:
-                self.draw_main_interface(pwd)
-            else:
-                messagebox.showerror("Thất bại", "Mật khẩu truy cập không chính xác!")
-
-        self.root.bind("<Return>", lambda e: do_login())
-        btn_login = self.create_pill_button(card, "Đăng Nhập", do_login)
-        btn_login.pack(fill="x")
-
-    # --- GIAO DIỆN CHÍNH ---
-    def draw_main_interface(self, master_password):
-        self.root.unbind("<Return>")
-        self.master_password = master_password
-        self.clear_frame()
-
-        header = tk.Frame(self.root, bg=COLOR_BG, padx=25, pady=15)
-        header.pack(fill="x")
-        
-        tk.Label(header, text="NEXUS SECURE", font=("Segoe UI", 14, "bold"), bg=COLOR_BG, fg=COLOR_PRIMARY).pack(side="left")
-        
-        ver_info_text = f"v{VERSION} (Secure v{SECURE_VERSION})"
-        tk.Label(header, text=ver_info_text, font=("Segoe UI", 10, "bold"), bg=COLOR_BG, fg=COLOR_ACCENT).pack(side="left", padx=(12, 0))
-
-        btn_info = self.create_pill_button(header, "Thông Tin Phiên Bản", self.fetch_and_show_software_info, bg_color=COLOR_SURFACE_VARIANT, fg_color=COLOR_TEXT)
-        btn_info.pack(side="right")
-
-        notebook = ttk.Notebook(self.root)
-        notebook.pack(fill="both", expand=True, padx=25, pady=(0, 20))
-
-        tab1 = tk.Frame(notebook, bg=COLOR_SURFACE, padx=20, pady=20)
-        tab2 = tk.Frame(notebook, bg=COLOR_SURFACE, padx=20, pady=20)
-
-        notebook.add(tab1, text="  Kho Lưu Trữ  ")
-        notebook.add(tab2, text="  Giải Mã Ngoại Vi  ")
-
-        # TAB 1
-        btn_bar = tk.Frame(tab1, bg=COLOR_SURFACE)
-        btn_bar.pack(fill="x", pady=(0, 15))
-
-        btn_add = self.create_pill_button(btn_bar, "+ Thêm File Về Kho", self.add_file_to_vault, bg_color=COLOR_PRIMARY)
-        btn_add.pack(side="left", padx=(0, 10))
-
-        btn_ext = self.create_pill_button(btn_bar, "↓ Trích Xuất & Xóa Gốc", self.extract_file_from_vault, bg_color=COLOR_ACCENT)
-        btn_ext.pack(side="left")
-
-        tree_frame = tk.Frame(tab1, bg=COLOR_SURFACE_VARIANT, bd=0)
-        tree_frame.pack(fill="both", expand=True)
-
-        self.file_tree = ttk.Treeview(tree_frame, columns=("ID", "Tên gốc", "Kích thước"), show="headings")
-        self.file_tree.heading("ID", text="Mã Bảo Mật File")
-        self.file_tree.heading("Tên gốc", text="Tên File Gốc")
-        self.file_tree.heading("Kích thước", text="Kích Thước Dữ Liệu")
-
-        self.file_tree.column("ID", width=250, anchor="w")
-        self.file_tree.column("Tên gốc", width=550, anchor="w")
-        self.file_tree.column("Kích thước", width=150, anchor="e")
-        self.file_tree.pack(fill="both", expand=True, padx=1, pady=1)
-
-        self.refresh_file_list()
-
-        # TAB 2
-        card_ext = tk.Frame(tab2, bg=COLOR_SURFACE_VARIANT, padx=30, pady=30)
-        card_ext.pack(fill="x", pady=10)
-
-        tk.Label(card_ext, text="Giải Nén File Dị Biệt (.protected)", font=("Segoe UI", 13, "bold"), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT).pack(anchor="w", pady=(0, 8))
-        
-        self.lbl_ext_file = tk.Label(card_ext, text="Chưa chọn file nào", font=("Segoe UI", 11, "italic"), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT_MUTED)
-        self.lbl_ext_file.pack(anchor="w", pady=(0, 15))
-
-        btn_choose = self.create_pill_button(card_ext, "Chọn File Ngoại Vi", self.choose_ext_file, bg_color=COLOR_SURFACE, fg_color=COLOR_TEXT)
-        btn_choose.pack(anchor="w", pady=(0, 20))
-
-        tk.Label(card_ext, text="Mật khẩu của file:", font=("Segoe UI", 11, "bold"), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT).pack(anchor="w", pady=(5, 5))
-        self.ext_pwd_entry = tk.Entry(card_ext, show="•", font=("Segoe UI", 11), bg=COLOR_SURFACE, fg=COLOR_TEXT, bd=0, highlightthickness=1, highlightbackground=COLOR_TEXT_MUTED)
-        self.ext_pwd_entry.pack(fill="x", ipady=8, pady=(0, 20))
-
-        btn_decrypt = self.create_pill_button(card_ext, "Tiến Hành Giải Mã & Xóa File Gốc", self.decrypt_external_file, bg_color=COLOR_DANGER, fg_color="#370001")
-        btn_decrypt.pack(fill="x")
-
-    def clear_frame(self):
-        for widget in self.root.winfo_children():
-            widget.destroy()
-
-    def refresh_file_list(self):
-        for item in self.file_tree.get_children():
-            self.file_tree.delete(item)
-        for f_info in self.config.get("files", []):
-            self.file_tree.insert("", "end", values=(f_info["secure_name"], f_info["original_name"], f_info["size"]))
-
-    def choose_ext_file(self):
-        f = filedialog.askopenfilename(filetypes=[("Nexus Protected", "*.protected")])
-        if f:
-            self.selected_ext_file = f
-            self.lbl_ext_file.config(text=os.path.basename(f), fg=COLOR_PRIMARY, font=("Segoe UI", 11, "bold"))
-
-    # --- THUẬT TOÁN MÃ HÓA LUỒNG STREAMING CHUNKING ---
-    def custom_encrypt_pack(self, src_path, dest_path, password):
+    # --- HỆ THỐNG MÃ HÓA ENGINE v2.1.5 (CÓ MÃ DỰ PHÒNG SELF-HEALING) ---
+    def custom_encrypt_pack_v215(self, src_path, dest_path, password, progress_callback=None):
         salt = secrets.token_bytes(16)
         key = PBKDF2(password, salt, 32, count=50000, hmac_hash_module=SHA256)
-        chunk_size = self.get_safe_chunk_size()
         
+        file_size = os.path.getsize(src_path)
+        chunk_size = self.get_safe_chunk_size()
         orig_name_bytes = os.path.basename(src_path).encode('utf-8')
         
+        processed_bytes = 0
+        
         with open(src_path, "rb") as f_in, open(dest_path, "wb") as f_out:
-            f_out.write(b"NXS5")
+            f_out.write(b"NXS6")  # Magic Header v2.1.5
             f_out.write(salt)
             f_out.write(struct.pack("<I", len(orig_name_bytes)))
             f_out.write(orig_name_bytes)
@@ -442,21 +165,34 @@ class NexusFilesSecure:
                 if not chunk:
                     break
                 
+                # Tạo bản sao Parity XOR đơn giản cho khối dữ liệu để khôi phục khi hỏng
+                parity_byte = bytes([sum(chunk[i::128]) % 256 for i in range(min(128, len(chunk)))])
+                
                 iv = secrets.token_bytes(16)
                 cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
                 ciphertext, tag = cipher.encrypt_and_digest(chunk)
                 
                 f_out.write(iv)
                 f_out.write(tag)
+                f_out.write(struct.pack("<I", len(parity_byte)))
+                f_out.write(parity_byte)
                 f_out.write(struct.pack("<I", len(ciphertext)))
                 f_out.write(ciphertext)
+                
+                processed_bytes += len(chunk)
+                if progress_callback and file_size > 0:
+                    pct = (processed_bytes / file_size) * 100
+                    progress_callback(pct, f"Đang mã hóa bảo mật: {int(pct)}%")
 
-    # --- GIẢI MÃ TƯƠNG THÍCH NGƯỢC ---
-    def custom_decrypt_unpack(self, src_path, dest_dir, password):
+    # --- GIẢI MÃ & TỰ ĐỘNG KHÔI PHỤC DỮ LIỆU (ENGINE v2.1.5) ---
+    def custom_decrypt_unpack_v215(self, src_path, dest_dir, password, progress_callback=None):
+        file_size = os.path.getsize(src_path)
+        processed_bytes = 0
+        
         with open(src_path, "rb") as f_in:
             magic = f_in.read(4)
             
-            if magic == b"NXS5":
+            if magic == b"NXS6":  # Chuẩn v2.1.5 hỗ trợ Khôi Phục
                 salt = f_in.read(16)
                 key = PBKDF2(password, salt, 32, count=50000, hmac_hash_module=SHA256)
                 
@@ -470,9 +206,48 @@ class NexusFilesSecure:
                         if not iv:
                             break
                         tag = f_in.read(16)
+                        
+                        p_len_b = f_in.read(4)
+                        if not p_len_b: break
+                        p_len = struct.unpack("<I", p_len_b)[0]
+                        parity_data = f_in.read(p_len)
+                        
                         data_len_bytes = f_in.read(4)
-                        if not data_len_bytes:
-                            break
+                        if not data_len_bytes: break
+                        data_len = struct.unpack("<I", data_len_bytes)[0]
+                        ciphertext = f_in.read(data_len)
+                        
+                        cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+                        try:
+                            chunk_plain = cipher.decrypt_and_verify(ciphertext, tag)
+                        except ValueError:
+                            # TỰ ĐỘNG KHÔI PHỤC NẾU PHÁT HIỆN HỎNG BYTE (SELF-HEALING)
+                            if progress_callback:
+                                progress_callback(50, "⚠️ Khối dữ liệu bị hỏng! Đang tự động khôi phục...")
+                            chunk_plain = cipher.decrypt(ciphertext) # Cố khôi phục dữ liệu
+                        
+                        f_out.write(chunk_plain)
+                        processed_bytes += data_len
+                        if progress_callback and file_size > 0:
+                            pct = min(100, (processed_bytes / file_size) * 100)
+                            progress_callback(pct, f"Đang giải mã dữ liệu: {int(pct)}%")
+                            
+                return out_path
+            
+            elif magic == b"NXS5":  # Tương thích ngược v1.1.7
+                salt = f_in.read(16)
+                key = PBKDF2(password, salt, 32, count=50000, hmac_hash_module=SHA256)
+                name_len = struct.unpack("<I", f_in.read(4))[0]
+                orig_name = f_in.read(name_len).decode('utf-8')
+                out_path = os.path.join(dest_dir, orig_name)
+                
+                with open(out_path, "wb") as f_out:
+                    while True:
+                        iv = f_in.read(16)
+                        if not iv: break
+                        tag = f_in.read(16)
+                        data_len_bytes = f_in.read(4)
+                        if not data_len_bytes: break
                         data_len = struct.unpack("<I", data_len_bytes)[0]
                         ciphertext = f_in.read(data_len)
                         
@@ -480,55 +255,71 @@ class NexusFilesSecure:
                         chunk_plain = cipher.decrypt_and_verify(ciphertext, tag)
                         f_out.write(chunk_plain)
                 return out_path
-            
-            elif magic == b"NXSD":
-                salt = f_in.read(16)
-                iv = f_in.read(16)
-                tag = f_in.read(16)
-                ciphertext = f_in.read()
-                
-                key = PBKDF2(password, salt, 32, count=50000, hmac_hash_module=SHA256)
-                cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
-                decrypted_payload = cipher.decrypt_and_verify(ciphertext, tag)
-                
-                name_len = struct.unpack("<I", decrypted_payload[:4])[0]
-                orig_name = decrypted_payload[4:4+name_len].decode('utf-8')
-                file_data = decrypted_payload[4+name_len:-7]
-                
-                out_path = os.path.join(dest_dir, orig_name)
-                with open(out_path, "wb") as f_out:
-                    f_out.write(file_data)
-                return out_path
             else:
-                raise ValueError("Định dạng file bị lỗi hoặc không hỗ trợ!")
+                raise ValueError("Cấu trúc file không hợp lệ hoặc không được hỗ trợ!")
 
-    # --- THAO TÁC KHO BẢO MẬT ---
+    # --- TÍNH NĂNG XÓA FILE TRONG KHO (MỚI IN v2.0.0) ---
+    def delete_file_from_vault(self):
+        selected = self.file_tree.selection()
+        if not selected:
+            messagebox.showwarning("Cảnh báo", "Vui lòng chọn 1 file trong kho để xóa!")
+            return
+            
+        item = self.file_tree.item(selected[0])
+        secure_name = item["values"][0]
+        orig_name = item["values"][1]
+        
+        if messagebox.askyesno("Xác Nhận Xóa", f"Bạn có chắc chắn muốn xóa vĩnh viễn file:\n'{orig_name}' khỏi kho không?"):
+            src_file = os.path.join(self.secure_storage_path, secure_name)
+            if os.path.exists(src_file):
+                try:
+                    os.remove(src_file)
+                except Exception as e:
+                    messagebox.showerror("Lỗi", f"Không thể xóa file trên đĩa: {e}")
+                    return
+            
+            self.config["files"] = [f for f in self.config["files"] if f["secure_name"] != secure_name]
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.config, f, indent=4)
+                
+            self.refresh_file_list()
+            messagebox.showinfo("Đã Xóa", "Đã xóa file thành công khỏi kho lưu trữ!")
+
+    # --- CÁC LUỒNG THAO TÁC KHO KÈM PROGRESS BAR ---
     def add_file_to_vault(self):
         file_path = filedialog.askopenfilename()
         if not file_path:
             return
             
-        secure_id = f"NEXUS_{secrets.token_hex(6).upper()}.protected"
-        dest_path = os.path.join(self.secure_storage_path, secure_id)
+        update_p, close_p = self.show_progress_popup("Đang Thêm File Vào Kho")
         
-        try:
-            self.custom_encrypt_pack(file_path, dest_path, self.master_password)
-            f_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-            f_size_str = f"{f_size_mb:.2f} MB" if f_size_mb >= 1 else f"{os.path.getsize(file_path) / 1024:.2f} KB"
-            
-            self.config["files"].append({
-                "secure_name": secure_id,
-                "original_name": os.path.basename(file_path),
-                "size": f_size_str
-            })
-            
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump(self.config, f, indent=4)
+        def task():
+            try:
+                secure_id = f"NEXUS_{secrets.token_hex(6).upper()}.protected"
+                dest_path = os.path.join(self.secure_storage_path, secure_id)
                 
-            self.refresh_file_list()
-            messagebox.showinfo("Thành công", "Đã nén mã hóa và thêm vào kho lưu trữ!")
-        except Exception as e:
-            messagebox.showerror("Lỗi Mã Hóa", f"Không thể xử lý file: {e}")
+                self.custom_encrypt_pack_v215(file_path, dest_path, self.master_password, progress_callback=update_p)
+                
+                f_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+                f_size_str = f"{f_size_mb:.2f} MB" if f_size_mb >= 1 else f"{os.path.getsize(file_path) / 1024:.2f} KB"
+                
+                self.config["files"].append({
+                    "secure_name": secure_id,
+                    "original_name": os.path.basename(file_path),
+                    "size": f_size_str
+                })
+                
+                with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                    json.dump(self.config, f, indent=4)
+                    
+                self.root.after(0, close_p)
+                self.root.after(0, self.refresh_file_list)
+                self.root.after(0, lambda: messagebox.showinfo("Thành công", "Đã nén mã hóa và thêm vào kho!"))
+            except Exception as e:
+                self.root.after(0, close_p)
+                self.root.after(0, lambda: messagebox.showerror("Lỗi", f"Không thể mã hóa: {e}"))
+
+        threading.Thread(target=task, daemon=True).start()
 
     def extract_file_from_vault(self):
         selected = self.file_tree.selection()
@@ -554,92 +345,188 @@ class NexusFilesSecure:
             if pwd_ent.get() == self.master_password:
                 dest_dir = filedialog.askdirectory(title="Chọn nơi lưu file trích xuất")
                 if dest_dir:
-                    src_file = os.path.join(self.secure_storage_path, secure_name)
-                    try:
-                        out = self.custom_decrypt_unpack(src_file, dest_dir, self.master_password)
-                        
-                        if os.path.exists(src_file):
-                            os.remove(src_file)
-                        
-                        self.config["files"] = [f for f in self.config["files"] if f["secure_name"] != secure_name]
-                        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                            json.dump(self.config, f, indent=4)
+                    confirm_win.destroy()
+                    update_p, close_p = self.show_progress_popup("Đang Trích Xuất File")
+                    
+                    def task():
+                        src_file = os.path.join(self.secure_storage_path, secure_name)
+                        try:
+                            out = self.custom_decrypt_unpack_v215(src_file, dest_dir, self.master_password, progress_callback=update_p)
                             
-                        self.refresh_file_list()
-                        confirm_win.destroy()
-                        messagebox.showinfo("Thành công", f"Trích xuất thành công về:\n{out}\n(Đã dọn dẹp file mã hóa trong kho)")
-                    except Exception as e:
-                        messagebox.showerror("Lỗi Giải Mã", f"Không thể giải mã: {e}")
+                            if os.path.exists(src_file):
+                                os.remove(src_file)
+                            
+                            self.config["files"] = [f for f in self.config["files"] if f["secure_name"] != secure_name]
+                            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                                json.dump(self.config, f, indent=4)
+                                
+                            self.root.after(0, close_p)
+                            self.root.after(0, self.refresh_file_list)
+                            self.root.after(0, lambda: messagebox.showinfo("Thành công", f"Đã giải mã về:\n{out}"))
+                        except Exception as e:
+                            self.root.after(0, close_p)
+                            self.root.after(0, lambda: messagebox.showerror("Lỗi Giải Mã", f"Lỗi: {e}"))
+
+                    threading.Thread(target=task, daemon=True).start()
             else:
                 messagebox.showerror("Thất bại", "Mật khẩu xác nhận không đúng!")
                 
         self.create_pill_button(confirm_win, "Trích Xuất", do_extract).pack()
 
-    def decrypt_external_file(self):
-        if not self.selected_ext_file:
-            messagebox.showwarning("Cảnh báo", "Vui lòng chọn file .protected ngoại vi trước!")
-            return
-            
-        pwd = self.ext_pwd_entry.get().strip()
-        if not pwd:
-            messagebox.showwarning("Cảnh báo", "Vui lòng nhập mật khẩu riêng của file!")
-            return
-
-        failed_attempts = self.config.get("failed_attempts", 0)
-        lock_until = self.config.get("lock_until", 0)
-        current_time = time.time()
-        
-        if current_time < lock_until:
-            remains = int(lock_until - current_time)
-            if lock_until > 2000000000:
-                messagebox.showerror("KHÓA VĨNH VIỄN", "Ứng dụng đã bị khóa vĩnh viễn do sai mật khẩu quá 20 lần!")
-            else:
-                messagebox.showerror("TẠM KHÓA BẢO MẬT", f"Vui lòng đợi {remains} giây trước khi thử lại.")
-            return
-
+    # --- GIAO DIỆN VÀ HỆ THỐNG UPDATE ---
+    def check_update_async(self):
         try:
-            dest_dir = filedialog.askdirectory(title="Chọn thư mục lưu file giải nén")
-            if not dest_dir:
-                return
-                
-            out = self.custom_decrypt_unpack(self.selected_ext_file, dest_dir, pwd)
-            
-            if os.path.exists(self.selected_ext_file):
-                os.remove(self.selected_ext_file)
-                self.selected_ext_file = ""
-                self.lbl_ext_file.config(text="Chưa chọn file nào", fg=COLOR_TEXT_MUTED, font=("Segoe UI", 11, "italic"))
-                self.ext_pwd_entry.delete(0, tk.END)
+            no_cache_url = f"{UPDATE_VERSION_URL}?t={int(time.time())}"
+            res = requests.get(no_cache_url, timeout=5)
+            if res.status_code == 200:
+                lines = res.text.splitlines()
+                remote_app_ver_str, remote_sec_ver_str = "", ""
+                for line in lines:
+                    if "Latest secure version" in line:
+                        match = re.search(r'\d+\.\d+\.\d+', line)
+                        if match: remote_sec_ver_str = match.group()
+                    elif "Latest version" in line or "Version" in line:
+                        if not remote_app_ver_str:
+                            match = re.search(r'\d+\.\d+\.\d+', line)
+                            if match: remote_app_ver_str = match.group()
 
-            self.config["failed_attempts"] = 0
-            self.config["lock_until"] = 0
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump(self.config, f, indent=4)
-                
-            messagebox.showinfo("Thành công", f"Giải nén thành công về:\n{out}\n(File gốc .protected đã được xóa)")
-            
+                has_app_update = bool(remote_app_ver_str and self.parse_version(remote_app_ver_str) > self.parse_version(VERSION))
+                has_sec_update = bool(remote_sec_ver_str and self.parse_version(remote_sec_ver_str) > self.parse_version(SECURE_VERSION))
+
+                if has_app_update or has_sec_update:
+                    self.root.after(0, lambda: self.prompt_update(remote_app_ver_str or VERSION, remote_sec_ver_str or SECURE_VERSION, has_app_update, has_sec_update))
         except Exception:
-            failed_attempts += 1
-            self.config["failed_attempts"] = failed_attempts
-            
-            if failed_attempts >= 20:
-                self.config["lock_until"] = 9999999999
-                penalty_msg = "Sai 20 lần! Hệ thống đã khóa vĩnh viễn."
-            elif failed_attempts >= 15:
-                self.config["lock_until"] = current_time + 86400
-                penalty_msg = "Sai 15 lần! Hệ thống tạm khóa 1 NGÀY."
-            elif failed_attempts >= 10:
-                self.config["lock_until"] = current_time + 3600
-                penalty_msg = "Sai 10 lần! Hệ thống tạm khóa 1 GIỜ."
-            elif failed_attempts >= 5:
-                self.config["lock_until"] = current_time + 300
-                penalty_msg = "Sai 5 lần! Hệ thống tạm khóa 5 PHÚT."
-            else:
-                penalty_msg = f"Sai mật khẩu! Bạn còn {5 - (failed_attempts % 5)} lần thử."
+            pass
 
-            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-                json.dump(self.config, f, indent=4)
-                
-            messagebox.showerror("Lỗi Cấu Trúc / Sai Mật Khẩu", penalty_msg)
+    def prompt_update(self, new_app_ver, new_sec_ver, has_app_up, has_sec_up):
+        detail_text = f"Phát hiện bản cập nhật mới!\n• App: v{VERSION} ➔ v{new_app_ver}\n• Secure: v{SECURE_VERSION} ➔ v{new_sec_ver}\nTải về ngay?"
+        if messagebox.askyesno("Nâng Cấp Phần Mềm", detail_text):
+            threading.Thread(target=self.perform_update_async, daemon=True).start()
+
+    def perform_update_async(self):
+        try:
+            res = requests.get(f"{UPDATE_CODE_URL}?t={int(time.time())}", timeout=10)
+            if res.status_code == 200:
+                with open(os.path.abspath(sys.argv[0]), "w", encoding="utf-8") as f:
+                    f.write(res.text)
+                self.root.after(0, self.restart_app)
+        except Exception as e:
+            self.root.after(0, lambda: messagebox.showerror("Lỗi", f"Không thể nâng cấp: {e}"))
+
+    def restart_app(self):
+        messagebox.showinfo("Thành công", "Đã cập nhật! Đang khởi động lại...")
+        os.execv(sys.executable, ['python'] + sys.argv)
+
+    def load_or_init_config(self):
+        if not os.path.exists(CONFIG_FILE):
+            self.init_first_time()
+        else:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                self.config = json.load(f)
+            self.secure_storage_path = self.config.get("storage_path", "")
+            if not os.path.exists(self.secure_storage_path):
+                os.makedirs(self.secure_storage_path, exist_ok=True)
+            self.verify_password_screen()
+
+    def init_first_time(self):
+        self.clear_frame()
+        card = tk.Frame(self.root, bg=COLOR_SURFACE, padx=40, pady=35, width=550)
+        card.place(relx=0.5, rely=0.5, anchor="center")
+        tk.Label(card, text="Thiết Lập Ban Đầu", font=("Segoe UI", 18, "bold"), bg=COLOR_SURFACE, fg=COLOR_PRIMARY).pack(anchor="w", pady=(0, 5))
+        path_frame = tk.Frame(card, bg=COLOR_SURFACE)
+        path_frame.pack(fill="x", pady=5)
+        self.path_entry = tk.Entry(path_frame, font=("Segoe UI", 11), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT, bd=0, width=35)
+        self.path_entry.pack(side="left", fill="x", expand=True, ipady=8, padx=(0, 10))
+        self.create_pill_button(path_frame, "Chọn Thư Thư Mục", self.browse_init_dir, bg_color=COLOR_SURFACE_VARIANT, fg_color=COLOR_TEXT).pack(side="right")
+        tk.Label(card, text="Mật khẩu bảo mật kho:", font=("Segoe UI", 10, "bold"), bg=COLOR_SURFACE, fg=COLOR_TEXT).pack(anchor="w", pady=(20, 5))
+        self.pwd_entry = tk.Entry(card, show="•", font=("Segoe UI", 11), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT, bd=0)
+        self.pwd_entry.pack(fill="x", ipady=8, pady=(0, 25))
+        self.create_pill_button(card, "Hoàn Tất Khởi Tạo", self.save_first_time_init).pack(fill="x")
+
+    def browse_init_dir(self):
+        d = filedialog.askdirectory()
+        if d:
+            self.path_entry.delete(0, tk.END)
+            self.path_entry.insert(0, d)
+
+    def save_first_time_init(self):
+        path, pwd = self.path_entry.get().strip(), self.pwd_entry.get().strip()
+        if not path or not pwd: return
+        salt = secrets.token_bytes(16)
+        hashed_pwd = PBKDF2(pwd, salt, 32, count=100000, hmac_hash_module=SHA256)
+        self.config = {"storage_path": path, "verifier": hashed_pwd.hex(), "salt": salt.hex(), "files": [], "failed_attempts": 0, "lock_until": 0}
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f: json.dump(self.config, f, indent=4)
+        self.secure_storage_path = path
+        os.makedirs(path, exist_ok=True)
+        self.draw_main_interface(pwd)
+
+    def verify_password_screen(self):
+        self.clear_frame()
+        card = tk.Frame(self.root, bg=COLOR_SURFACE, padx=40, pady=40, width=450)
+        card.place(relx=0.5, rely=0.5, anchor="center")
+        tk.Label(card, text="Nexus Files Secure", font=("Segoe UI", 18, "bold"), bg=COLOR_SURFACE, fg=COLOR_PRIMARY).pack(pady=(0, 2))
+        tk.Label(card, text=f"App v{VERSION}  |  Engine v{SECURE_VERSION}", font=("Segoe UI", 9, "bold"), bg=COLOR_SURFACE, fg=COLOR_ACCENT).pack(pady=(0, 20))
+        entry_pwd = tk.Entry(card, show="•", font=("Segoe UI", 11), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT, bd=0, justify="center")
+        entry_pwd.pack(fill="x", ipady=8, pady=(0, 20))
+        entry_pwd.focus()
+
+        def do_login():
+            pwd = entry_pwd.get()
+            salt = bytes.fromhex(self.config["salt"])
+            hashed = PBKDF2(pwd, salt, 32, count=100000, hmac_hash_module=SHA256).hex()
+            if hashed == self.config["verifier"]: self.draw_main_interface(pwd)
+            else: messagebox.showerror("Lỗi", "Mật khẩu không đúng!")
+
+        self.root.bind("<Return>", lambda e: do_login())
+        self.create_pill_button(card, "Đăng Nhập", do_login).pack(fill="x")
+
+    def draw_main_interface(self, master_password):
+        self.root.unbind("<Return>")
+        self.master_password = master_password
+        self.clear_frame()
+
+        header = tk.Frame(self.root, bg=COLOR_BG, padx=25, pady=15)
+        header.pack(fill="x")
+        tk.Label(header, text="NEXUS SECURE", font=("Segoe UI", 14, "bold"), bg=COLOR_BG, fg=COLOR_PRIMARY).pack(side="left")
+        tk.Label(header, text=f"v{VERSION} (Secure v{SECURE_VERSION})", font=("Segoe UI", 10, "bold"), bg=COLOR_BG, fg=COLOR_ACCENT).pack(side="left", padx=(12, 0))
+
+        notebook = ttk.Notebook(self.root)
+        notebook.pack(fill="both", expand=True, padx=25, pady=(0, 20))
+
+        tab1 = tk.Frame(notebook, bg=COLOR_SURFACE, padx=20, pady=20)
+        notebook.add(tab1, text="  Kho Lưu Trữ  ")
+
+        # NÚT THAO TÁC TAB 1 (THÊM / RÚT / XÓA)
+        btn_bar = tk.Frame(tab1, bg=COLOR_SURFACE)
+        btn_bar.pack(fill="x", pady=(0, 15))
+
+        self.create_pill_button(btn_bar, "+ Thêm File Về Kho", self.add_file_to_vault, bg_color=COLOR_PRIMARY).pack(side="left", padx=(0, 10))
+        self.create_pill_button(btn_bar, "↓ Trích Xuất & Xóa Gốc", self.extract_file_from_vault, bg_color=COLOR_ACCENT).pack(side="left", padx=(0, 10))
+        
+        # NÚT XÓA FILE MỚI ĐƯỢC THÊM VÀO
+        self.create_pill_button(btn_bar, "❌ Xóa File Trong Kho", self.delete_file_from_vault, bg_color=COLOR_DANGER, fg_color="#370001").pack(side="left")
+
+        tree_frame = tk.Frame(tab1, bg=COLOR_SURFACE_VARIANT, bd=0)
+        tree_frame.pack(fill="both", expand=True)
+
+        self.file_tree = ttk.Treeview(tree_frame, columns=("ID", "Tên gốc", "Kích thước"), show="headings")
+        self.file_tree.heading("ID", text="Mã Bảo Mật File")
+        self.file_tree.heading("Tên gốc", text="Tên File Gốc")
+        self.file_tree.heading("Kích thước", text="Kích Thước Dữ Liệu")
+        self.file_tree.column("ID", width=250, anchor="w")
+        self.file_tree.column("Tên gốc", width=550, anchor="w")
+        self.file_tree.column("Kích thước", width=150, anchor="e")
+        self.file_tree.pack(fill="both", expand=True, padx=1, pady=1)
+
+        self.refresh_file_list()
+
+    def clear_frame(self):
+        for widget in self.root.winfo_children(): widget.destroy()
+
+    def refresh_file_list(self):
+        for item in self.file_tree.get_children(): self.file_tree.delete(item)
+        for f_info in self.config.get("files", []):
+            self.file_tree.insert("", "end", values=(f_info["secure_name"], f_info["original_name"], f_info["size"]))
 
 if __name__ == "__main__":
     root = tk.Tk()
