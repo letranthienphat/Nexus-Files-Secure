@@ -9,3 +9,8 @@ Introduces a new encoding mechanism to prevent the RAM overflow issue found in t
 Supports decompression of files from both version 1.1.5 and the older version 1.1.0.
 Creation date: August 15, 2026.
 This version has indefinite validity from the date of release.
+Minimum hardware requirements:
+Intel/AMD x86 or x64 CPU with 2 or more cores.
+At least 512MB of free RAM.
+Approximately 50MB of storage space for the software after installation; additional disk space is required for files being added to or extracted from the archive.
+Operating system: Windows 7 / 8 / 10 / 11.
