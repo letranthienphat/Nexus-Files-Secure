@@ -63,7 +63,7 @@ class NexusFilesSecure:
                        foreground=[("selected", COLOR_PRIMARY)])
 
         self.style.configure("Treeview", background=COLOR_SURFACE, foreground=COLOR_TEXT, 
-                             fieldbackground=COLOR_SURFACE, rowheight=32, font=("Segoe UI", 9.5), borderwidth=0)
+                             fieldbackground=COLOR_SURFACE, rowheight=32, font=("Segoe UI", 10), borderwidth=0)
         self.style.configure("Treeview.Heading", background=COLOR_SURFACE_VARIANT, foreground=COLOR_TEXT, 
                              font=("Segoe UI", 9, "bold"), borderwidth=0)
         self.style.map("Treeview", background=[("selected", COLOR_SURFACE_VARIANT)], foreground=[("selected", COLOR_PRIMARY)])
@@ -71,7 +71,7 @@ class NexusFilesSecure:
     def create_pill_button(self, parent, text, command, bg_color=COLOR_PRIMARY, fg_color=COLOR_ON_PRIMARY, width=None):
         return tk.Button(parent, text=text, command=command, bg=bg_color, fg=fg_color,
                          activebackground=COLOR_ACCENT, activeforeground=COLOR_ON_PRIMARY,
-                         font=("Segoe UI", 9.5, "bold"), relief="flat", bd=0, padx=14, pady=6,
+                         font=("Segoe UI", 10, "bold"), relief="flat", bd=0, padx=14, pady=6,
                          cursor="hand2", width=width)
 
     def parse_version(self, version_str):
@@ -188,7 +188,7 @@ class NexusFilesSecure:
         card.pack(expand=True, padx=40, pady=40, fill="both")
         
         tk.Label(card, text="Thiết Lập Ban Đầu", font=("Segoe UI", 16, "bold"), bg=COLOR_SURFACE, fg=COLOR_PRIMARY).pack(anchor="w", pady=(0, 5))
-        tk.Label(card, text="Vui lòng chọn thư mục kho lưu trữ và tạo mật khẩu.", font=("Segoe UI", 9.5), bg=COLOR_SURFACE, fg=COLOR_TEXT_MUTED).pack(anchor="w", pady=(0, 20))
+        tk.Label(card, text="Vui lòng chọn thư mục kho lưu trữ và tạo mật khẩu.", font=("Segoe UI", 10), bg=COLOR_SURFACE, fg=COLOR_TEXT_MUTED).pack(anchor="w", pady=(0, 20))
         
         path_frame = tk.Frame(card, bg=COLOR_SURFACE)
         path_frame.pack(fill="x", pady=5)
@@ -199,7 +199,7 @@ class NexusFilesSecure:
         btn_browse = self.create_pill_button(path_frame, "Chọn Thư Mục", self.browse_init_dir, bg_color=COLOR_SURFACE_VARIANT, fg_color=COLOR_TEXT)
         btn_browse.pack(side="right")
         
-        tk.Label(card, text="Mật khẩu bảo mật:", font=("Segoe UI", 9.5, "bold"), bg=COLOR_SURFACE, fg=COLOR_TEXT).pack(anchor="w", pady=(15, 5))
+        tk.Label(card, text="Mật khẩu bảo mật:", font=("Segoe UI", 10, "bold"), bg=COLOR_SURFACE, fg=COLOR_TEXT).pack(anchor="w", pady=(15, 5))
         self.pwd_entry = tk.Entry(card, show="•", font=("Segoe UI", 10), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT, bd=0, highlightthickness=1, highlightbackground=COLOR_TEXT_MUTED)
         self.pwd_entry.pack(fill="x", ipady=6, pady=(0, 20))
         
@@ -249,7 +249,7 @@ class NexusFilesSecure:
         card.pack(expand=True, padx=80, pady=60, fill="both")
         
         tk.Label(card, text="Nexus Files Secure", font=("Segoe UI", 16, "bold"), bg=COLOR_SURFACE, fg=COLOR_PRIMARY).pack(pady=(0, 5))
-        tk.Label(card, text="Nhập mật khẩu để truy cập kho bảo mật", font=("Segoe UI", 9.5), bg=COLOR_SURFACE, fg=COLOR_TEXT_MUTED).pack(pady=(0, 20))
+        tk.Label(card, text="Nhập mật khẩu để truy cập kho bảo mật", font=("Segoe UI", 10), bg=COLOR_SURFACE, fg=COLOR_TEXT_MUTED).pack(pady=(0, 20))
         
         entry_pwd = tk.Entry(card, show="•", font=("Segoe UI", 11), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT, bd=0, justify="center", highlightthickness=1, highlightbackground=COLOR_TEXT_MUTED)
         entry_pwd.pack(fill="x", ipady=8, pady=(0, 20))
@@ -325,13 +325,13 @@ class NexusFilesSecure:
 
         tk.Label(card_ext, text="Giải Nén File Dị Biệt (.protected)", font=("Segoe UI", 11, "bold"), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT).pack(anchor="w", pady=(0, 5))
         
-        self.lbl_ext_file = tk.Label(card_ext, text="Chưa chọn file nào", font=("Segoe UI", 9.5, "italic"), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT_MUTED)
+        self.lbl_ext_file = tk.Label(card_ext, text="Chưa chọn file nào", font=("Segoe UI", 10, "italic"), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT_MUTED)
         self.lbl_ext_file.pack(anchor="w", pady=(0, 10))
 
         btn_choose = self.create_pill_button(card_ext, "Chọn File Ngoại Vi", self.choose_ext_file, bg_color=COLOR_SURFACE, fg_color=COLOR_TEXT)
         btn_choose.pack(anchor="w", pady=(0, 15))
 
-        tk.Label(card_ext, text="Mật khẩu của file:", font=("Segoe UI", 9.5, "bold"), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT).pack(anchor="w", pady=(5, 5))
+        tk.Label(card_ext, text="Mật khẩu của file:", font=("Segoe UI", 10, "bold"), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT).pack(anchor="w", pady=(5, 5))
         self.ext_pwd_entry = tk.Entry(card_ext, show="•", font=("Segoe UI", 10), bg=COLOR_SURFACE, fg=COLOR_TEXT, bd=0, highlightthickness=1, highlightbackground=COLOR_TEXT_MUTED)
         self.ext_pwd_entry.pack(fill="x", ipady=6, pady=(0, 15))
 
@@ -352,7 +352,7 @@ class NexusFilesSecure:
         f = filedialog.askopenfilename(filetypes=[("Nexus Protected", "*.protected")])
         if f:
             self.selected_ext_file = f
-            self.lbl_ext_file.config(text=os.path.basename(f), fg=COLOR_PRIMARY, font=("Segoe UI", 9.5, "bold"))
+            self.lbl_ext_file.config(text=os.path.basename(f), fg=COLOR_PRIMARY, font=("Segoe UI", 10, "bold"))
 
     # --- NÉN MÃ HÓA & GIẢI MÃ ---
     def custom_encrypt_pack(self, src_path, dest_path, password):
@@ -444,7 +444,7 @@ class NexusFilesSecure:
         confirm_win.configure(bg=COLOR_SURFACE)
         confirm_win.grab_set()
         
-        tk.Label(confirm_win, text="Nhập mật khẩu chính để trích xuất:", font=("Segoe UI", 9.5, "bold"), bg=COLOR_SURFACE, fg=COLOR_TEXT).pack(pady=(15, 5))
+        tk.Label(confirm_win, text="Nhập mật khẩu chính để trích xuất:", font=("Segoe UI", 10, "bold"), bg=COLOR_SURFACE, fg=COLOR_TEXT).pack(pady=(15, 5))
         pwd_ent = tk.Entry(confirm_win, show="•", font=("Segoe UI", 10), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT, bd=0, justify="center")
         pwd_ent.pack(fill="x", padx=30, ipady=5, pady=(0, 15))
         pwd_ent.focus()
@@ -506,7 +506,7 @@ class NexusFilesSecure:
             if os.path.exists(self.selected_ext_file):
                 os.remove(self.selected_ext_file)
                 self.selected_ext_file = ""
-                self.lbl_ext_file.config(text="Chưa chọn file nào", fg=COLOR_TEXT_MUTED, font=("Segoe UI", 9.5, "italic"))
+                self.lbl_ext_file.config(text="Chưa chọn file nào", fg=COLOR_TEXT_MUTED, font=("Segoe UI", 10, "italic"))
                 self.ext_pwd_entry.delete(0, tk.END)
 
             self.config["failed_attempts"] = 0
