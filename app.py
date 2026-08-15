@@ -15,7 +15,7 @@ from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Hash import SHA256
 
 # --- KHAI BÁO PHIÊN BẢN HỆ THỐNG ---
-VERSION = "1.1.6"
+VERSION = "1.1.7"
 SECURE_VERSION = "2.0.0"
 
 CONFIG_FILE = "data.json"
@@ -116,10 +116,13 @@ class NexusFilesSecure:
         except ValueError:
             return (0, 0, 0)
 
-    # --- HỆ THỐNG CHECK VÀ PHÂN LOẠI BẢN CẬP NHẬT ---
+    # --- HỆ THỐNG CHECK VÀ PHÂN LOẠI BẢN CẬP NHẬT (CHỐNG CACHE GITHUB CDN) ---
     def check_update_async(self):
         try:
-            res = requests.get(UPDATE_VERSION_URL, timeout=4)
+            # Gắn timestamp ép GitHub CDN luôn trả về nội dung mới nhất
+            no_cache_url = f"{UPDATE_VERSION_URL}?t={int(time.time())}"
+            res = requests.get(no_cache_url, timeout=5)
+            
             if res.status_code == 200:
                 lines = res.text.splitlines()
                 remote_app_ver_str = ""
@@ -176,7 +179,9 @@ class NexusFilesSecure:
 
     def perform_update_async(self):
         try:
-            res = requests.get(UPDATE_CODE_URL, timeout=10)
+            # Gắn timestamp chống cache khi tải file app.py mới
+            no_cache_code_url = f"{UPDATE_CODE_URL}?t={int(time.time())}"
+            res = requests.get(no_cache_code_url, timeout=10)
             if res.status_code == 200:
                 current_script = os.path.abspath(sys.argv[0])
                 with open(current_script, "w", encoding="utf-8") as f:
@@ -189,11 +194,12 @@ class NexusFilesSecure:
         messagebox.showinfo("Thành công", "Đã cập nhật hệ thống thành công! Ứng dụng sẽ khởi động lại.")
         os.execv(sys.executable, ['python'] + sys.argv)
 
-    # --- XEM NỘI DUNG README GỐC ---
+    # --- XEM NỘI DUNG README GỐC (CHỐNG CACHE) ---
     def fetch_and_show_software_info(self):
         def task():
             try:
-                res = requests.get(UPDATE_VERSION_URL, timeout=5)
+                no_cache_url = f"{UPDATE_VERSION_URL}?t={int(time.time())}"
+                res = requests.get(no_cache_url, timeout=5)
                 if res.status_code == 200:
                     raw_text = res.text
                     self.root.clipboard_clear()
@@ -246,7 +252,7 @@ class NexusFilesSecure:
     def init_first_time(self):
         self.clear_frame()
         card = tk.Frame(self.root, bg=COLOR_SURFACE, padx=40, pady=35, width=550)
-        card.place(relx=0.5, rely=0.5, anchor="center") # Căn giữa màn hình
+        card.place(relx=0.5, rely=0.5, anchor="center")
         
         tk.Label(card, text="Thiết Lập Ban Đầu", font=("Segoe UI", 18, "bold"), bg=COLOR_SURFACE, fg=COLOR_PRIMARY).pack(anchor="w", pady=(0, 5))
         tk.Label(card, text="Chọn thư mục kho lưu trữ và tạo mật khẩu chính.", font=("Segoe UI", 10), bg=COLOR_SURFACE, fg=COLOR_TEXT_MUTED).pack(anchor="w", pady=(0, 25))
@@ -303,7 +309,7 @@ class NexusFilesSecure:
     def verify_password_screen(self):
         self.clear_frame()
         card = tk.Frame(self.root, bg=COLOR_SURFACE, padx=40, pady=40, width=450)
-        card.place(relx=0.5, rely=0.5, anchor="center") # Căn giữa màn hình khi ở chế độ Fullscreen
+        card.place(relx=0.5, rely=0.5, anchor="center")
         
         tk.Label(card, text="Nexus Files Secure", font=("Segoe UI", 18, "bold"), bg=COLOR_SURFACE, fg=COLOR_PRIMARY).pack(pady=(0, 2))
         
@@ -417,7 +423,7 @@ class NexusFilesSecure:
             self.selected_ext_file = f
             self.lbl_ext_file.config(text=os.path.basename(f), fg=COLOR_PRIMARY, font=("Segoe UI", 11, "bold"))
 
-    # --- THUẬT TOÁN MÃ HÓA LUỒNG STREAMING CHUNKING (V1.1.5) ---
+    # --- THUẬT TOÁN MÃ HÓA LUỒNG STREAMING CHUNKING ---
     def custom_encrypt_pack(self, src_path, dest_path, password):
         salt = secrets.token_bytes(16)
         key = PBKDF2(password, salt, 32, count=50000, hmac_hash_module=SHA256)
