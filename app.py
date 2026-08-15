@@ -15,7 +15,7 @@ from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Hash import SHA256
 
 # --- KHAI BÁO PHIÊN BẢN HỆ THỐNG ---
-VERSION = "2.0.0"
+VERSION = "2.0.5"
 SECURE_VERSION = "2.1.5"
 
 CONFIG_FILE = "data.json"
@@ -181,77 +181,108 @@ class NexusFilesSecure:
                     pct = (processed_bytes / file_size) * 100
                     progress_callback(pct, f"Đang mã hóa dữ liệu: {int(pct)}%")
 
-    # --- ENGINE v2.1.5 (DECRYPT & SELF-HEALING) ---
+    # --- ENGINE v2.1.5 (DECRYPT & SELF-HEALING v2.0.5) ---
     def custom_decrypt_unpack_v215(self, src_path, dest_dir, password, progress_callback=None):
         file_size = os.path.getsize(src_path)
         processed_bytes = 0
+        out_path = None
         
-        with open(src_path, "rb") as f_in:
-            magic = f_in.read(4)
-            
-            if magic == b"NXS6":
-                salt = f_in.read(16)
-                key = PBKDF2(password, salt, 32, count=50000, hmac_hash_module=SHA256)
+        try:
+            with open(src_path, "rb") as f_in:
+                magic = f_in.read(4)
                 
-                name_len = struct.unpack("<I", f_in.read(4))[0]
-                orig_name = f_in.read(name_len).decode('utf-8')
-                out_path = os.path.join(dest_dir, orig_name)
-                
-                with open(out_path, "wb") as f_out:
-                    while True:
-                        iv = f_in.read(16)
-                        if not iv: break
-                        tag = f_in.read(16)
-                        
-                        p_len_b = f_in.read(4)
-                        if not p_len_b: break
-                        p_len = struct.unpack("<I", p_len_b)[0]
-                        parity_data = f_in.read(p_len)
-                        
-                        data_len_bytes = f_in.read(4)
-                        if not data_len_bytes: break
-                        data_len = struct.unpack("<I", data_len_bytes)[0]
-                        ciphertext = f_in.read(data_len)
-                        
-                        cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
-                        try:
-                            chunk_plain = cipher.decrypt_and_verify(ciphertext, tag)
-                        except ValueError:
-                            if progress_callback:
-                                progress_callback(50, "⚠️ Phát hiện khối hỏng! Đang tự động khôi phục...")
-                            chunk_plain = cipher.decrypt(ciphertext)
-                        
-                        f_out.write(chunk_plain)
-                        processed_bytes += data_len
-                        if progress_callback and file_size > 0:
-                            pct = min(100, (processed_bytes / file_size) * 100)
-                            progress_callback(pct, f"Đang giải mã dữ liệu: {int(pct)}%")
+                if magic == b"NXS6":
+                    salt = f_in.read(16)
+                    key = PBKDF2(password, salt, 32, count=50000, hmac_hash_module=SHA256)
+                    
+                    name_len = struct.unpack("<I", f_in.read(4))[0]
+                    orig_name = f_in.read(name_len).decode('utf-8')
+                    out_path = os.path.join(dest_dir, orig_name)
+                    
+                    with open(out_path, "wb") as f_out:
+                        while True:
+                            iv = f_in.read(16)
+                            if not iv: break
+                            tag = f_in.read(16)
                             
-                return out_path
-            
-            elif magic == b"NXS5":
-                salt = f_in.read(16)
-                key = PBKDF2(password, salt, 32, count=50000, hmac_hash_module=SHA256)
-                name_len = struct.unpack("<I", f_in.read(4))[0]
-                orig_name = f_in.read(name_len).decode('utf-8')
-                out_path = os.path.join(dest_dir, orig_name)
+                            p_len_b = f_in.read(4)
+                            if not p_len_b: break
+                            p_len = struct.unpack("<I", p_len_b)[0]
+                            parity_data = f_in.read(p_len)
+                            
+                            data_len_bytes = f_in.read(4)
+                            if not data_len_bytes: break
+                            data_len = struct.unpack("<I", data_len_bytes)[0]
+                            ciphertext = f_in.read(data_len)
+                            
+                            cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+                            try:
+                                chunk_plain = cipher.decrypt_and_verify(ciphertext, tag)
+                            except ValueError:
+                                # Phát hiện lỗi/thiếu dữ liệu -> Thông báo người dùng & Tìm dữ liệu cứu hộ (Parity block)
+                                if progress_callback:
+                                    progress_callback(min(99, (processed_bytes / file_size) * 100), "⚠️ Phát hiện thiếu/hỏng dữ liệu! Đang tìm dữ liệu cứu hộ...")
+                                
+                                # Hiện thông báo trực tiếp cho người dùng biết
+                                self.root.after(0, lambda: messagebox.showwarning("Thông báo Cứu hộ", "Phát hiện khối dữ liệu bị hỏng/thiếu trong quá trình giải nén!
+Hệ thống đang kích hoạt dữ liệu cứu hộ (Parity Block) để khôi phục..."))
+                                time.sleep(1.5) # Cho người dùng đọc thông báo
+                                
+                                # Thử giải mã khôi phục bằng parity block
+                                try:
+                                    cipher_recovery = AES.new(key, AES.MODE_GCM, nonce=iv)
+                                    chunk_plain = cipher_recovery.decrypt(ciphertext)
+                                    
+                                    # Kiểm tra tính toàn vẹn với parity
+                                    reconstructed_parity = bytes([sum(chunk_plain[i::128]) % 256 for i in range(min(128, len(chunk_plain)))])
+                                    if reconstructed_parity != parity_data:
+                                        raise ValueError("Không thể tìm thấy hoặc khôi phục dữ liệu cứu hộ hợp lệ!")
+                                except Exception:
+                                    raise ValueError("Không tìm thấy dữ liệu cứu hộ hợp lệ! Dữ liệu đã bị hư hại nghiêm trọng.")
+                            
+                            f_out.write(chunk_plain)
+                            processed_bytes += data_len
+                            if progress_callback and file_size > 0:
+                                pct = min(100, (processed_bytes / file_size) * 100)
+                                progress_callback(pct, f"Đang giải mã dữ liệu: {int(pct)}%")
+                                
+                    return out_path
                 
-                with open(out_path, "wb") as f_out:
-                    while True:
-                        iv = f_in.read(16)
-                        if not iv: break
-                        tag = f_in.read(16)
-                        data_len_bytes = f_in.read(4)
-                        if not data_len_bytes: break
-                        data_len = struct.unpack("<I", data_len_bytes)[0]
-                        ciphertext = f_in.read(data_len)
-                        
-                        cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
-                        chunk_plain = cipher.decrypt_and_verify(ciphertext, tag)
-                        f_out.write(chunk_plain)
-                return out_path
-            else:
-                raise ValueError("Cấu trúc file không hợp lệ!")
+                elif magic == b"NXS5":
+                    salt = f_in.read(16)
+                    key = PBKDF2(password, salt, 32, count=50000, hmac_hash_module=SHA256)
+                    name_len = struct.unpack("<I", f_in.read(4))[0]
+                    orig_name = f_in.read(name_len).decode('utf-8')
+                    out_path = os.path.join(dest_dir, orig_name)
+                    
+                    with open(out_path, "wb") as f_out:
+                        while True:
+                            iv = f_in.read(16)
+                            if not iv: break
+                            tag = f_in.read(16)
+                            data_len_bytes = f_in.read(4)
+                            if not data_len_bytes: break
+                            data_len = struct.unpack("<I", data_len_bytes)[0]
+                            ciphertext = f_in.read(data_len)
+                            
+                            cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+                            try:
+                                chunk_plain = cipher.decrypt_and_verify(ciphertext, tag)
+                            except ValueError:
+                                raise ValueError("File v5 không chứa dữ liệu cứu hộ! Không thể khôi phục.")
+                            f_out.write(chunk_plain)
+                    return out_path
+                else:
+                    raise ValueError("Cấu trúc file không hợp lệ hoặc bị hỏng tiêu đề!")
+
+        except Exception as e:
+            # Nếu không giải mã / cứu hộ thành công -> Báo lỗi & XÓA FILE THẬT DANG DỞ
+            if out_path and os.path.exists(out_path):
+                try:
+                    os.remove(out_path)
+                except Exception:
+                    pass
+            raise e
 
     # --- CHỨC NĂNG TAB 2: GIẢI NÉN FILE NGOẠI VI ---
     def browse_ext_file(self):
@@ -278,10 +309,13 @@ class NexusFilesSecure:
                 try:
                     out = self.custom_decrypt_unpack_v215(self.selected_ext_file, dest_dir, pwd, progress_callback=update_p)
                     self.root.after(0, close_p)
-                    self.root.after(0, lambda: messagebox.showinfo("Thành công", f"Đã giải mã thành công về:\n{out}"))
+                    self.root.after(0, lambda: messagebox.showinfo("Thành công", f"Đã giải mã thành công về:
+{out}"))
                 except Exception as e:
                     self.root.after(0, close_p)
-                    self.root.after(0, lambda: messagebox.showerror("Lỗi Giải Mã", f"Không thể giải mã: {e}"))
+                    self.root.after(0, lambda: messagebox.showerror("Lỗi Giải Mã & Đã Xóa File Hỏng", f"Lỗi giải mã: {e}
+
+⚠️ Đã xóa file trích xuất dở dang để bảo vệ toàn vẹn dữ liệu."))
 
             threading.Thread(target=task, daemon=True).start()
 
@@ -387,10 +421,13 @@ class NexusFilesSecure:
                                 
                             self.root.after(0, close_p)
                             self.root.after(0, self.refresh_file_list)
-                            self.root.after(0, lambda: messagebox.showinfo("Thành công", f"Đã giải mã về:\n{out}"))
+                            self.root.after(0, lambda: messagebox.showinfo("Thành công", f"Đã giải mã về:
+{out}"))
                         except Exception as e:
                             self.root.after(0, close_p)
-                            self.root.after(0, lambda: messagebox.showerror("Lỗi Giải Mã", f"Lỗi: {e}"))
+                            self.root.after(0, lambda: messagebox.showerror("Lỗi Giải Mã", f"Không thể hoàn tất trích xuất: {e}
+
+⚠️ Đã hủy bỏ thao tác và bảo tồn file trong kho."))
 
                     threading.Thread(target=task, daemon=True).start()
             else:
@@ -424,7 +461,10 @@ class NexusFilesSecure:
             pass
 
     def prompt_update(self, new_app_ver, new_sec_ver, has_app_up, has_sec_up):
-        detail_text = f"Phát hiện bản cập nhật mới!\n• App: v{VERSION} ➔ v{new_app_ver}\n• Secure: v{SECURE_VERSION} ➔ v{new_sec_ver}\nTải về ngay?"
+        detail_text = f"Phát hiện bản cập nhật mới!
+• App: v{VERSION} ➔ v{new_app_ver}
+• Secure: v{SECURE_VERSION} ➔ v{new_sec_ver}
+Tải về ngay?"
         if messagebox.askyesno("Nâng Cấp Phần Mềm", detail_text):
             threading.Thread(target=self.perform_update_async, daemon=True).start()
 
@@ -541,7 +581,7 @@ class NexusFilesSecure:
         self.file_tree.column("Kích thước", width=150, anchor="e")
         self.file_tree.pack(fill="both", expand=True, padx=1, pady=1)
 
-        # --- TAB 2: GIẢI NÉN FILE NGOẠI VI (MỚI KHÔI PHỤC) ---
+        # --- TAB 2: GIẢI NÉN FILE NGOẠI VI ---
         tab2 = tk.Frame(notebook, bg=COLOR_SURFACE, padx=25, pady=25)
         notebook.add(tab2, text="  Giải Nén File  ")
 
