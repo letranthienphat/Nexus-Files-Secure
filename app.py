@@ -15,7 +15,7 @@ from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Hash import SHA256
 
 # --- KHAI BÁO PHIÊN BẢN HỆ THỐNG ---
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 SECURE_VERSION = "2.1.5"
 
 CONFIG_FILE = "data.json"
