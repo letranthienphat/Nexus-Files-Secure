@@ -7,13 +7,17 @@ import secrets
 import threading
 import requests
 import re
+import ctypes
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from Crypto.Cipher import AES
 from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Hash import SHA256
 
-VERSION = "1.1.0"
+# --- KHAI BÁO PHIÊN BẢN HỆ THỐNG ---
+VERSION = "1.1.5"
+SECURE_VERSION = "2.0.0"
+
 CONFIG_FILE = "data.json"
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/letranthienphat/Nexus-Files-Secure/refs/heads/main/README.md"
 UPDATE_CODE_URL = "https://raw.githubusercontent.com/letranthienphat/Nexus-Files-Secure/refs/heads/main/app.py"
@@ -33,8 +37,8 @@ COLOR_TEXT_MUTED = "#938F99"
 class NexusFilesSecure:
     def __init__(self, root):
         self.root = root
-        self.root.title("Nexus Files Secure")
-        self.root.geometry("640x540")
+        self.root.title(f"Nexus Files Secure - App v{VERSION} | Secure v{SECURE_VERSION}")
+        self.root.geometry("660x560")
         self.root.configure(bg=COLOR_BG)
         self.root.resizable(False, False)
         
@@ -49,6 +53,32 @@ class NexusFilesSecure:
         threading.Thread(target=self.check_update_async, daemon=True).start()
         
         self.load_or_init_config()
+
+    # --- TÍNH TOÁN RAM TRỐNG (TỐI ĐA 80% RAM TRỐNG) ---
+    def get_safe_chunk_size(self):
+        try:
+            class MEMORYSTATUSEX(ctypes.Structure):
+                _fields_ = [
+                    ('dwLength', ctypes.c_ulong),
+                    ('dwMemoryLoad', ctypes.c_ulong),
+                    ('ullTotalPhys', ctypes.c_ulonglong),
+                    ('ullAvailPhys', ctypes.c_ulonglong),
+                    ('ullTotalPageFile', ctypes.c_ulonglong),
+                    ('ullAvailPageFile', ctypes.c_ulonglong),
+                    ('ullTotalVirtual', ctypes.c_ulonglong),
+                    ('ullAvailVirtual', ctypes.c_ulonglong),
+                    ('sullAvailExtendedVirtual', ctypes.c_ulonglong),
+                ]
+            stat = MEMORYSTATUSEX()
+            stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+            ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+            available_ram = stat.ullAvailPhys
+            max_allowed = int(available_ram * 0.8)
+        except Exception:
+            max_allowed = 32 * 1024 * 1024
+            
+        chunk_size = min(max_allowed, 16 * 1024 * 1024)
+        return max(chunk_size, 1 * 1024 * 1024)
 
     # --- THIẾT LẬP THEME ANDROID 16 ---
     def setup_android_theme(self):
@@ -80,34 +110,65 @@ class NexusFilesSecure:
         except ValueError:
             return (0, 0, 0)
 
-    # --- KIỂM TRA CẬP NHẬT TỰ ĐỘNG ---
+    # --- HỆ THỐNG CHECK VÀ PHÂN LOẠI BẢN CẬP NHẬT ---
     def check_update_async(self):
         try:
             res = requests.get(UPDATE_VERSION_URL, timeout=4)
             if res.status_code == 200:
                 lines = res.text.splitlines()
-                target_line = ""
-                new_version_str = ""
+                remote_app_ver_str = ""
+                remote_sec_ver_str = ""
                 
                 for line in lines:
-                    match = re.search(r'\d+\.\d+\.\d+', line)
-                    if match:
-                        new_version_str = match.group()
-                        target_line = line.strip()
-                        break
-                        
-                if new_version_str and self.parse_version(new_version_str) > self.parse_version(VERSION):
-                    self.root.after(0, lambda: self.prompt_update(new_version_str, target_line))
+                    # Đọc phiên bản bảo mật
+                    if "Latest secure version" in line:
+                        match = re.search(r'\d+\.\d+\.\d+', line)
+                        if match:
+                            remote_sec_ver_str = match.group()
+                    # Đọc phiên bản ứng dụng
+                    elif "Latest version" in line or "Version" in line:
+                        if not remote_app_ver_str:
+                            match = re.search(r'\d+\.\d+\.\d+', line)
+                            if match:
+                                remote_app_ver_str = match.group()
+
+                has_app_update = bool(remote_app_ver_str and self.parse_version(remote_app_ver_str) > self.parse_version(VERSION))
+                has_sec_update = bool(remote_sec_ver_str and self.parse_version(remote_sec_ver_str) > self.parse_version(SECURE_VERSION))
+
+                if has_app_update or has_sec_update:
+                    self.root.after(0, lambda: self.prompt_update(
+                        remote_app_ver_str or VERSION,
+                        remote_sec_ver_str or SECURE_VERSION,
+                        has_app_update,
+                        has_sec_update
+                    ))
         except Exception:
             pass
 
-    def prompt_update(self, new_version, full_line):
+    def prompt_update(self, new_app_ver, new_sec_ver, has_app_up, has_sec_up):
+        # Xác định loại cập nhật dựa vào trạng thái phiên bản
+        if has_app_up and has_sec_up:
+            update_type_msg = "📌 Loại cập nhật: Cập nhật toàn diện (Bao gồm tính năng mới và nâng cấp bảo mật quan trọng)."
+        elif has_app_up and not has_sec_up:
+            update_type_msg = "📌 Loại cập nhật: Cập nhật tính năng, không ảnh hưởng đến bảo mật."
+        elif has_sec_up and not has_app_up:
+            update_type_msg = "📌 Loại cập nhật: Cập nhật liên quan đến bảo mật, không làm thay đổi tính năng."
+        else:
+            return
+
+        detail_text = (
+            f"Phát hiện bản cập nhật mới trên GitHub!\n\n"
+            f"• Phiên bản Ứng dụng: v{VERSION} ➔ v{new_app_ver}\n"
+            f"• Phiên bản Bảo mật:   v{SECURE_VERSION} ➔ v{new_sec_ver}\n\n"
+            f"{update_type_msg}\n\n"
+            f"Bạn có muốn tiến hành nâng cấp tự động ngay không?"
+        )
+
         self.root.clipboard_clear()
-        self.root.clipboard_append(full_line)
+        self.root.clipboard_append(detail_text)
         self.root.update()
 
-        msg = f"Phát hiện bản cập nhật mới (v{new_version})!\n\nChi tiết: {full_line}\n\n(Đã tự động copy thông tin phiên bản mới vào Clipboard)\nBạn có muốn tự động nâng cấp không?"
-        if messagebox.askyesno("Phát Hiện Cập Nhật Mới", msg):
+        if messagebox.askyesno("Phát Hiện Bản Cập Nhật Mới", detail_text):
             threading.Thread(target=self.perform_update_async, daemon=True).start()
 
     def perform_update_async(self):
@@ -119,13 +180,13 @@ class NexusFilesSecure:
                     f.write(res.text)
                 self.root.after(0, self.restart_app)
         except Exception as e:
-            self.root.after(0, lambda: messagebox.showerror("Lỗi Cập Nhật", f"Không thể tải bản nâng cấp: {e}"))
+            self.root.after(0, lambda: messagebox.showerror("Lỗi Cập Nhật", f"Không thể tải mã nguồn mới: {e}"))
 
     def restart_app(self):
-        messagebox.showinfo("Thành công", "Đã nâng cấp phiên bản mới! Phần mềm sẽ tự khởi động lại.")
+        messagebox.showinfo("Thành công", "Đã cập nhật hệ thống thành công! Ứng dụng sẽ khởi động lại.")
         os.execv(sys.executable, ['python'] + sys.argv)
 
-    # --- THÔNG TIN PHẦN MỀM (README VIEWER) ---
+    # --- XEM NỘI DUNG README GỐC ---
     def fetch_and_show_software_info(self):
         def task():
             try:
@@ -135,10 +196,9 @@ class NexusFilesSecure:
                     self.root.clipboard_clear()
                     self.root.clipboard_append(raw_text)
                     self.root.update()
-                    
                     self.root.after(0, lambda: self.display_readme_window(raw_text))
                 else:
-                    self.root.after(0, lambda: messagebox.showerror("Lỗi", "Không thể tải nội dung README.md"))
+                    self.root.after(0, lambda: messagebox.showerror("Lỗi", "Không thể tải file README.md"))
             except Exception as e:
                 self.root.after(0, lambda: messagebox.showerror("Lỗi", f"Lỗi kết nối: {e}"))
 
@@ -146,19 +206,19 @@ class NexusFilesSecure:
 
     def display_readme_window(self, content):
         info_win = tk.Toplevel(self.root)
-        info_win.title("Thông Tin Phần Mềm - RAW README")
-        info_win.geometry("620x480")
+        info_win.title("Thông Tin Phiên Bản & Bảo Mật - README")
+        info_win.geometry("620x500")
         info_win.configure(bg=COLOR_BG)
 
         hdr = tk.Frame(info_win, bg=COLOR_BG, padx=15, pady=10)
         hdr.pack(fill="x")
-        tk.Label(hdr, text="Nội Dung README (Đã sao chép)", font=("Segoe UI", 12, "bold"), bg=COLOR_BG, fg=COLOR_PRIMARY).pack(side="left")
+        tk.Label(hdr, text="Chi Tiết README (Đã copy vào Clipboard)", font=("Segoe UI", 11, "bold"), bg=COLOR_BG, fg=COLOR_PRIMARY).pack(side="left")
 
         txt_frame = tk.Frame(info_win, bg=COLOR_SURFACE, padx=10, pady=10)
         txt_frame.pack(fill="both", expand=True, padx=15, pady=(0, 15))
 
         txt_box = tk.Text(txt_frame, wrap="word", bg=COLOR_SURFACE, fg=COLOR_TEXT, 
-                          font=("Segoe UI", 12), bd=0, highlightthickness=0)
+                          font=("Segoe UI", 11), bd=0, highlightthickness=0)
         scrollbar = ttk.Scrollbar(txt_frame, command=txt_box.yview)
         txt_box.configure(yscrollcommand=scrollbar.set)
 
@@ -167,8 +227,6 @@ class NexusFilesSecure:
 
         txt_box.insert("1.0", content)
         txt_box.config(state="disabled")
-
-        messagebox.showinfo("Thông báo", "Đã sao chép toàn bộ nội dung README.md vào bộ nhớ tạm (Clipboard)!")
 
     # --- QUẢN LÝ CẤU HÌNH ---
     def load_or_init_config(self):
@@ -188,7 +246,7 @@ class NexusFilesSecure:
         card.pack(expand=True, padx=40, pady=40, fill="both")
         
         tk.Label(card, text="Thiết Lập Ban Đầu", font=("Segoe UI", 16, "bold"), bg=COLOR_SURFACE, fg=COLOR_PRIMARY).pack(anchor="w", pady=(0, 5))
-        tk.Label(card, text="Vui lòng chọn thư mục kho lưu trữ và tạo mật khẩu.", font=("Segoe UI", 10), bg=COLOR_SURFACE, fg=COLOR_TEXT_MUTED).pack(anchor="w", pady=(0, 20))
+        tk.Label(card, text="Chọn thư mục kho lưu trữ và tạo mật khẩu chính.", font=("Segoe UI", 10), bg=COLOR_SURFACE, fg=COLOR_TEXT_MUTED).pack(anchor="w", pady=(0, 20))
         
         path_frame = tk.Frame(card, bg=COLOR_SURFACE)
         path_frame.pack(fill="x", pady=5)
@@ -199,11 +257,11 @@ class NexusFilesSecure:
         btn_browse = self.create_pill_button(path_frame, "Chọn Thư Mục", self.browse_init_dir, bg_color=COLOR_SURFACE_VARIANT, fg_color=COLOR_TEXT)
         btn_browse.pack(side="right")
         
-        tk.Label(card, text="Mật khẩu bảo mật:", font=("Segoe UI", 10, "bold"), bg=COLOR_SURFACE, fg=COLOR_TEXT).pack(anchor="w", pady=(15, 5))
+        tk.Label(card, text="Mật khẩu bảo mật kho:", font=("Segoe UI", 10, "bold"), bg=COLOR_SURFACE, fg=COLOR_TEXT).pack(anchor="w", pady=(15, 5))
         self.pwd_entry = tk.Entry(card, show="•", font=("Segoe UI", 10), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT, bd=0, highlightthickness=1, highlightbackground=COLOR_TEXT_MUTED)
         self.pwd_entry.pack(fill="x", ipady=6, pady=(0, 20))
         
-        btn_save = self.create_pill_button(card, "Hoàn Tất Thiết Lập", self.save_first_time_init)
+        btn_save = self.create_pill_button(card, "Hoàn Tất Khởi Tạo", self.save_first_time_init)
         btn_save.pack(fill="x")
 
     def browse_init_dir(self):
@@ -236,10 +294,6 @@ class NexusFilesSecure:
             
         self.secure_storage_path = path
         os.makedirs(path, exist_ok=True)
-        
-        with open(os.path.join(path, "README_WARNING.txt"), "w", encoding="utf-8") as w:
-            w.write("CANH BAO: Tat ca file trong day duoc ma hoa di biet boi Nexus Files Secure.\nKhong mo hoac di chuyen thu cong đe tranh hong du lieu!")
-            
         self.draw_main_interface(pwd)
 
     # --- MÀN HÌNH ĐĂNG NHẬP ---
@@ -248,8 +302,13 @@ class NexusFilesSecure:
         card = tk.Frame(self.root, bg=COLOR_SURFACE, padx=30, pady=30)
         card.pack(expand=True, padx=80, pady=60, fill="both")
         
-        tk.Label(card, text="Nexus Files Secure", font=("Segoe UI", 16, "bold"), bg=COLOR_SURFACE, fg=COLOR_PRIMARY).pack(pady=(0, 5))
-        tk.Label(card, text="Nhập mật khẩu để truy cập kho bảo mật", font=("Segoe UI", 10), bg=COLOR_SURFACE, fg=COLOR_TEXT_MUTED).pack(pady=(0, 20))
+        tk.Label(card, text="Nexus Files Secure", font=("Segoe UI", 16, "bold"), bg=COLOR_SURFACE, fg=COLOR_PRIMARY).pack(pady=(0, 2))
+        
+        # Màn hình đăng nhập hiển thị chi tiết 2 thông số phiên bản
+        lbl_ver_sub = tk.Label(card, text=f"App v{VERSION}  |  Secure Engine v{SECURE_VERSION}", font=("Segoe UI", 9, "bold"), bg=COLOR_SURFACE, fg=COLOR_ACCENT)
+        lbl_ver_sub.pack(pady=(0, 15))
+
+        tk.Label(card, text="Nhập mật khẩu truy cập kho lưu trữ", font=("Segoe UI", 10), bg=COLOR_SURFACE, fg=COLOR_TEXT_MUTED).pack(pady=(0, 15))
         
         entry_pwd = tk.Entry(card, show="•", font=("Segoe UI", 11), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT, bd=0, justify="center", highlightthickness=1, highlightbackground=COLOR_TEXT_MUTED)
         entry_pwd.pack(fill="x", ipady=8, pady=(0, 20))
@@ -264,7 +323,7 @@ class NexusFilesSecure:
             if hashed == expected:
                 self.draw_main_interface(pwd)
             else:
-                messagebox.showerror("Xác thực thất bại", "Mật khẩu truy cập không chính xác!")
+                messagebox.showerror("Thất bại", "Mật khẩu truy cập không chính xác!")
 
         self.root.bind("<Return>", lambda e: do_login())
         btn_login = self.create_pill_button(card, "Đăng Nhập", do_login)
@@ -280,9 +339,12 @@ class NexusFilesSecure:
         header.pack(fill="x")
         
         tk.Label(header, text="NEXUS SECURE", font=("Segoe UI", 12, "bold"), bg=COLOR_BG, fg=COLOR_PRIMARY).pack(side="left")
-        tk.Label(header, text=f"v{VERSION}", font=("Segoe UI", 9), bg=COLOR_BG, fg=COLOR_TEXT_MUTED).pack(side="left", padx=(5, 0))
+        
+        # Hiển thị rõ phiên bản App và phiên bản Bảo Mật trên Thanh Tiêu Đề Top Bar
+        ver_info_text = f"v{VERSION} (Secure v{SECURE_VERSION})"
+        tk.Label(header, text=ver_info_text, font=("Segoe UI", 9, "bold"), bg=COLOR_BG, fg=COLOR_ACCENT).pack(side="left", padx=(8, 0))
 
-        btn_info = self.create_pill_button(header, "Thông Tin Phần Mềm", self.fetch_and_show_software_info, bg_color=COLOR_SURFACE_VARIANT, fg_color=COLOR_TEXT)
+        btn_info = self.create_pill_button(header, "Thông Tin Phiên Bản", self.fetch_and_show_software_info, bg_color=COLOR_SURFACE_VARIANT, fg_color=COLOR_TEXT)
         btn_info.pack(side="right")
 
         notebook = ttk.Notebook(self.root)
@@ -294,7 +356,7 @@ class NexusFilesSecure:
         notebook.add(tab1, text="  Kho Lưu Trữ  ")
         notebook.add(tab2, text="  Giải Mã Ngoại Vi  ")
 
-        # --- TAB 1 ---
+        # TAB 1
         btn_bar = tk.Frame(tab1, bg=COLOR_SURFACE)
         btn_bar.pack(fill="x", pady=(0, 12))
 
@@ -313,13 +375,13 @@ class NexusFilesSecure:
         self.file_tree.heading("Kích thước", text="Kích Thước")
 
         self.file_tree.column("ID", width=160, anchor="w")
-        self.file_tree.column("Tên gốc", width=280, anchor="w")
+        self.file_tree.column("Tên gốc", width=290, anchor="w")
         self.file_tree.column("Kích thước", width=100, anchor="e")
         self.file_tree.pack(fill="both", expand=True, padx=1, pady=1)
 
         self.refresh_file_list()
 
-        # --- TAB 2 ---
+        # TAB 2
         card_ext = tk.Frame(tab2, bg=COLOR_SURFACE_VARIANT, padx=20, pady=20)
         card_ext.pack(fill="x", pady=10)
 
@@ -354,55 +416,89 @@ class NexusFilesSecure:
             self.selected_ext_file = f
             self.lbl_ext_file.config(text=os.path.basename(f), fg=COLOR_PRIMARY, font=("Segoe UI", 10, "bold"))
 
-    # --- NÉN MÃ HÓA & GIẢI MÃ ---
+    # --- THUẬT TOÁN MÃ HÓA LUỒNG STREAMING CHUNKING (V1.1.5) ---
     def custom_encrypt_pack(self, src_path, dest_path, password):
         salt = secrets.token_bytes(16)
         key = PBKDF2(password, salt, 32, count=50000, hmac_hash_module=SHA256)
+        chunk_size = self.get_safe_chunk_size()
         
-        orig_name = os.path.basename(src_path).encode('utf-8')
-        with open(src_path, "rb") as f:
-            file_data = f.read()
+        orig_name_bytes = os.path.basename(src_path).encode('utf-8')
+        
+        with open(src_path, "rb") as f_in, open(dest_path, "wb") as f_out:
+            # Struct Header v1.1.5 Magic Key NXS5
+            f_out.write(b"NXS5")
+            f_out.write(salt)
+            f_out.write(struct.pack("<I", len(orig_name_bytes)))
+            f_out.write(orig_name_bytes)
             
-        header_struct = struct.pack("<I", len(orig_name))
-        payload = header_struct + orig_name + file_data + secrets.token_bytes(7)
-        
-        iv = secrets.token_bytes(16)
-        cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
-        ciphertext, tag = cipher.encrypt_and_digest(payload)
-        
-        with open(dest_path, "wb") as out:
-            out.write(b"NXSD")
-            out.write(salt)
-            out.write(iv)
-            out.write(tag)
-            out.write(ciphertext)
-
-    def custom_decrypt_unpack(self, src_path, dest_dir, password):
-        with open(src_path, "rb") as f:
-            magic = f.read(4)
-            if magic != b"NXSD":
-                raise ValueError("Định dạng file bị lỗi hoặc không tương thích!")
+            while True:
+                chunk = f_in.read(chunk_size)
+                if not chunk:
+                    break
                 
-            salt = f.read(16)
-            iv = f.read(16)
-            tag = f.read(16)
-            ciphertext = f.read()
-            
-        key = PBKDF2(password, salt, 32, count=50000, hmac_hash_module=SHA256)
-        cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
-        
-        decrypted_payload = cipher.decrypt_and_verify(ciphertext, tag)
-        
-        name_len = struct.unpack("<I", decrypted_payload[:4])[0]
-        orig_name = decrypted_payload[4:4+name_len].decode('utf-8')
-        file_data = decrypted_payload[4+name_len:-7]
-        
-        out_path = os.path.join(dest_dir, orig_name)
-        with open(out_path, "wb") as f_out:
-            f_out.write(file_data)
-        return out_path
+                iv = secrets.token_bytes(16)
+                cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+                ciphertext, tag = cipher.encrypt_and_digest(chunk)
+                
+                f_out.write(iv)
+                f_out.write(tag)
+                f_out.write(struct.pack("<I", len(ciphertext)))
+                f_out.write(ciphertext)
 
-    # --- TÁC VỤ THÊM / TRÍCH XUẤT / GIẢI MÃ ---
+    # --- GIẢI MÃ TƯƠNG THÍCH NGƯỢC ---
+    def custom_decrypt_unpack(self, src_path, dest_dir, password):
+        with open(src_path, "rb") as f_in:
+            magic = f_in.read(4)
+            
+            # --- CHUẨN MỚI V1.1.5 CHUNK STREAMING ---
+            if magic == b"NXS5":
+                salt = f_in.read(16)
+                key = PBKDF2(password, salt, 32, count=50000, hmac_hash_module=SHA256)
+                
+                name_len = struct.unpack("<I", f_in.read(4))[0]
+                orig_name = f_in.read(name_len).decode('utf-8')
+                out_path = os.path.join(dest_dir, orig_name)
+                
+                with open(out_path, "wb") as f_out:
+                    while True:
+                        iv = f_in.read(16)
+                        if not iv:
+                            break
+                        tag = f_in.read(16)
+                        data_len_bytes = f_in.read(4)
+                        if not data_len_bytes:
+                            break
+                        data_len = struct.unpack("<I", data_len_bytes)[0]
+                        ciphertext = f_in.read(data_len)
+                        
+                        cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+                        chunk_plain = cipher.decrypt_and_verify(ciphertext, tag)
+                        f_out.write(chunk_plain)
+                return out_path
+            
+            # --- CHUẨN CŨ V1.1.0 SINGLE BLOCK ---
+            elif magic == b"NXSD":
+                salt = f_in.read(16)
+                iv = f_in.read(16)
+                tag = f_in.read(16)
+                ciphertext = f_in.read()
+                
+                key = PBKDF2(password, salt, 32, count=50000, hmac_hash_module=SHA256)
+                cipher = AES.new(key, AES.MODE_GCM, nonce=iv)
+                decrypted_payload = cipher.decrypt_and_verify(ciphertext, tag)
+                
+                name_len = struct.unpack("<I", decrypted_payload[:4])[0]
+                orig_name = decrypted_payload[4:4+name_len].decode('utf-8')
+                file_data = decrypted_payload[4+name_len:-7]
+                
+                out_path = os.path.join(dest_dir, orig_name)
+                with open(out_path, "wb") as f_out:
+                    f_out.write(file_data)
+                return out_path
+            else:
+                raise ValueError("Định dạng file bị lỗi hoặc không hỗ trợ!")
+
+    # --- THAO TÁC KHO BẢO MẬT ---
     def add_file_to_vault(self):
         file_path = filedialog.askopenfilename()
         if not file_path:
@@ -413,12 +509,13 @@ class NexusFilesSecure:
         
         try:
             self.custom_encrypt_pack(file_path, dest_path, self.master_password)
-            f_size = f"{os.path.getsize(file_path) / 1024:.2f} KB"
+            f_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+            f_size_str = f"{f_size_mb:.2f} MB" if f_size_mb >= 1 else f"{os.path.getsize(file_path) / 1024:.2f} KB"
             
             self.config["files"].append({
                 "secure_name": secure_id,
                 "original_name": os.path.basename(file_path),
-                "size": f_size
+                "size": f_size_str
             })
             
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
@@ -432,7 +529,7 @@ class NexusFilesSecure:
     def extract_file_from_vault(self):
         selected = self.file_tree.selection()
         if not selected:
-            messagebox.showwarning("Cảnh báo", "Vui lòng chọn 1 file từ danh sách để trích xuất!")
+            messagebox.showwarning("Cảnh báo", "Vui lòng chọn 1 file để trích xuất!")
             return
             
         item = self.file_tree.item(selected[0])
@@ -444,14 +541,14 @@ class NexusFilesSecure:
         confirm_win.configure(bg=COLOR_SURFACE)
         confirm_win.grab_set()
         
-        tk.Label(confirm_win, text="Nhập mật khẩu chính để trích xuất:", font=("Segoe UI", 10, "bold"), bg=COLOR_SURFACE, fg=COLOR_TEXT).pack(pady=(15, 5))
+        tk.Label(confirm_win, text="Nhập mật khẩu kho để trích xuất:", font=("Segoe UI", 10, "bold"), bg=COLOR_SURFACE, fg=COLOR_TEXT).pack(pady=(15, 5))
         pwd_ent = tk.Entry(confirm_win, show="•", font=("Segoe UI", 10), bg=COLOR_SURFACE_VARIANT, fg=COLOR_TEXT, bd=0, justify="center")
         pwd_ent.pack(fill="x", padx=30, ipady=5, pady=(0, 15))
         pwd_ent.focus()
         
         def do_extract():
             if pwd_ent.get() == self.master_password:
-                dest_dir = filedialog.askdirectory(title="Chọn thư mục lưu file trích xuất")
+                dest_dir = filedialog.askdirectory(title="Chọn nơi lưu file trích xuất")
                 if dest_dir:
                     src_file = os.path.join(self.secure_storage_path, secure_name)
                     try:
@@ -466,9 +563,9 @@ class NexusFilesSecure:
                             
                         self.refresh_file_list()
                         confirm_win.destroy()
-                        messagebox.showinfo("Thành công", f"Đã trích xuất thành công về:\n{out}\n(File mã hóa trong kho đã được xóa)")
+                        messagebox.showinfo("Thành công", f"Trích xuất thành công về:\n{out}\n(Đã dọn dẹp file mã hóa trong kho)")
                     except Exception as e:
-                        messagebox.showerror("Lỗi Giải Mã", f"Không thể mở file: {e}")
+                        messagebox.showerror("Lỗi Giải Mã", f"Không thể giải mã: {e}")
             else:
                 messagebox.showerror("Thất bại", "Mật khẩu xác nhận không đúng!")
                 
@@ -491,13 +588,13 @@ class NexusFilesSecure:
         if current_time < lock_until:
             remains = int(lock_until - current_time)
             if lock_until > 2000000000:
-                messagebox.showerror("KHÓA VĨNH VIỄN", "Phần mềm bị khóa vĩnh viễn do nhập sai quá 20 lần!")
+                messagebox.showerror("KHÓA VĨNH VIỄN", "Ứng dụng đã bị khóa vĩnh viễn do sai mật khẩu quá 20 lần!")
             else:
-                messagebox.showerror("TẠM KHÓA BẢO MẬT", f"Hệ thống đang tạm khóa. Vui lòng thử lại sau: {remains} giây.")
+                messagebox.showerror("TẠM KHÓA BẢO MẬT", f"Vui lòng đợi {remains} giây trước khi thử lại.")
             return
 
         try:
-            dest_dir = filedialog.askdirectory(title="Chọn nơi lưu file giải nén")
+            dest_dir = filedialog.askdirectory(title="Chọn thư mục lưu file giải nén")
             if not dest_dir:
                 return
                 
@@ -514,7 +611,7 @@ class NexusFilesSecure:
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(self.config, f, indent=4)
                 
-            messagebox.showinfo("Thành công", f"Giải nén thành công về:\n{out}\n(File .protected gốc đã được xóa)")
+            messagebox.showinfo("Thành công", f"Giải nén thành công về:\n{out}\n(File gốc .protected đã được xóa)")
             
         except Exception:
             failed_attempts += 1
@@ -522,7 +619,7 @@ class NexusFilesSecure:
             
             if failed_attempts >= 20:
                 self.config["lock_until"] = 9999999999
-                penalty_msg = "Sai 20 lần! Hệ thống khóa vĩnh viễn file để ngăn ngừa truy cập trái phép."
+                penalty_msg = "Sai 20 lần! Hệ thống đã khóa vĩnh viễn."
             elif failed_attempts >= 15:
                 self.config["lock_until"] = current_time + 86400
                 penalty_msg = "Sai 15 lần! Hệ thống tạm khóa 1 NGÀY."
@@ -533,7 +630,7 @@ class NexusFilesSecure:
                 self.config["lock_until"] = current_time + 300
                 penalty_msg = "Sai 5 lần! Hệ thống tạm khóa 5 PHÚT."
             else:
-                penalty_msg = f"Mật khẩu không đúng! Bạn còn {5 - (failed_attempts % 5)} lần thử trước khi bị phạt khóa."
+                penalty_msg = f"Sai mật khẩu! Bạn còn {5 - (failed_attempts % 5)} lần thử."
 
             with open(CONFIG_FILE, "w", encoding="utf-8") as f:
                 json.dump(self.config, f, indent=4)
