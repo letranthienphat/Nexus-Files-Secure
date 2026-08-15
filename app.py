@@ -13,7 +13,7 @@ from Crypto.Cipher import AES
 from Crypto.Protocol.KDF import PBKDF2
 from Crypto.Hash import SHA256
 
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 CONFIG_FILE = "data.json"
 UPDATE_VERSION_URL = "https://raw.githubusercontent.com/letranthienphat/Nexus-Files-Secure/refs/heads/main/README.md"
 UPDATE_CODE_URL = "https://raw.githubusercontent.com/letranthienphat/Nexus-Files-Secure/refs/heads/main/app.py"
@@ -80,7 +80,7 @@ class NexusFilesSecure:
         except ValueError:
             return (0, 0, 0)
 
-    # --- KIỂM TRA CẬP NHẬT TỰ ĐỘNG KHÔNG LAG GUI ---
+    # --- KIỂM TRA CẬP NHẬT TỰ ĐỘNG ---
     def check_update_async(self):
         try:
             res = requests.get(UPDATE_VERSION_URL, timeout=4)
@@ -89,7 +89,6 @@ class NexusFilesSecure:
                 target_line = ""
                 new_version_str = ""
                 
-                # Tìm dòng chứa thông tin phiên bản (VD: Latest version: 1.1.0 Material You Nexus UI)
                 for line in lines:
                     match = re.search(r'\d+\.\d+\.\d+', line)
                     if match:
@@ -103,7 +102,6 @@ class NexusFilesSecure:
             pass
 
     def prompt_update(self, new_version, full_line):
-        # Tự động Copy dòng chứa chuỗi Latest version: x.x.x ... vào Clipboard
         self.root.clipboard_clear()
         self.root.clipboard_append(full_line)
         self.root.update()
@@ -127,14 +125,13 @@ class NexusFilesSecure:
         messagebox.showinfo("Thành công", "Đã nâng cấp phiên bản mới! Phần mềm sẽ tự khởi động lại.")
         os.execv(sys.executable, ['python'] + sys.argv)
 
-    # --- TÍNH NĂNG MỚI: THÔNG TIN PHẦN MỀM (README VIEWER) ---
+    # --- THÔNG TIN PHẦN MỀM (README VIEWER) ---
     def fetch_and_show_software_info(self):
         def task():
             try:
                 res = requests.get(UPDATE_VERSION_URL, timeout=5)
                 if res.status_code == 200:
                     raw_text = res.text
-                    # Copy toàn bộ nội dung link raw README.md
                     self.root.clipboard_clear()
                     self.root.clipboard_append(raw_text)
                     self.root.update()
@@ -153,12 +150,10 @@ class NexusFilesSecure:
         info_win.geometry("620x480")
         info_win.configure(bg=COLOR_BG)
 
-        # Header window
         hdr = tk.Frame(info_win, bg=COLOR_BG, padx=15, pady=10)
         hdr.pack(fill="x")
         tk.Label(hdr, text="Nội Dung README (Đã sao chép)", font=("Segoe UI", 12, "bold"), bg=COLOR_BG, fg=COLOR_PRIMARY).pack(side="left")
 
-        # Cửa sổ hiển thị độc lập với chữ tăng kích thước (font size 12)
         txt_frame = tk.Frame(info_win, bg=COLOR_SURFACE, padx=10, pady=10)
         txt_frame.pack(fill="both", expand=True, padx=15, pady=(0, 15))
 
@@ -175,7 +170,7 @@ class NexusFilesSecure:
 
         messagebox.showinfo("Thông báo", "Đã sao chép toàn bộ nội dung README.md vào bộ nhớ tạm (Clipboard)!")
 
-    # --- QUẢN LÝ CẤU HÌNH & KHỞI TẠO ---
+    # --- QUẢN LÝ CẤU HÌNH ---
     def load_or_init_config(self):
         if not os.path.exists(CONFIG_FILE):
             self.init_first_time()
@@ -281,18 +276,15 @@ class NexusFilesSecure:
         self.master_password = master_password
         self.clear_frame()
 
-        # Header Bar
         header = tk.Frame(self.root, bg=COLOR_BG, padx=20, pady=10)
         header.pack(fill="x")
         
         tk.Label(header, text="NEXUS SECURE", font=("Segoe UI", 12, "bold"), bg=COLOR_BG, fg=COLOR_PRIMARY).pack(side="left")
         tk.Label(header, text=f"v{VERSION}", font=("Segoe UI", 9), bg=COLOR_BG, fg=COLOR_TEXT_MUTED).pack(side="left", padx=(5, 0))
 
-        # Nút "Thông Tin Phần Mềm" góc trên bên phải
         btn_info = self.create_pill_button(header, "Thông Tin Phần Mềm", self.fetch_and_show_software_info, bg_color=COLOR_SURFACE_VARIANT, fg_color=COLOR_TEXT)
         btn_info.pack(side="right")
 
-        # Tab Notebook
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill="both", expand=True, padx=15, pady=(0, 15))
 
@@ -362,7 +354,7 @@ class NexusFilesSecure:
             self.selected_ext_file = f
             self.lbl_ext_file.config(text=os.path.basename(f), fg=COLOR_PRIMARY, font=("Segoe UI", 9.5, "bold"))
 
-    # --- THỦ TỤC NÉN MÃ HÓA & GIẢI MÃ ---
+    # --- NÉN MÃ HÓA & GIẢI MÃ ---
     def custom_encrypt_pack(self, src_path, dest_path, password):
         salt = secrets.token_bytes(16)
         key = PBKDF2(password, salt, 32, count=50000, hmac_hash_module=SHA256)
